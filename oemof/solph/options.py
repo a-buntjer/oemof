@@ -104,3 +104,146 @@ class NonConvex:
             self._calculate_max_up_down()
 
         return self._max_up_down
+
+
+class RollingHorizon:
+    """
+    Parameters
+    ----------
+    startup_costs : numeric (sequence or scalar)
+        Costs associated with a start of the flow (representing a unit).
+    shutdown_costs : numeric (sequence or scalar)
+        Costs associated with the shutdown of the flow (representing a unit).
+    activity_costs : numeric (sequence or scalar)
+        Costs associated with the active operation of the flow, independently
+        from the actual output.
+    minimum_uptime : numeric (1 or positive integer)
+        Minimum time that a flow must be greater then its minimum flow after
+        startup. Be aware that minimum up and downtimes can contradict each
+        other and may lead to infeasible problems.
+    minimum_downtime : numeric (1 or positive integer)
+        Minimum time a flow is forced to zero after shutting down.
+        Be aware that minimum up and downtimes can contradict each
+        other and may to infeasible problems.
+    maximum_startups : numeric (0 or positive integer)
+        Maximum number of start-ups.
+    maximum_shutdowns : numeric (0 or positive integer)
+        Maximum number of shutdowns.
+    initial_status : numeric (0 or 1)
+        Integer value indicating the status of the flow in the first time step
+        (0 = off, 1 = on). For minimum up and downtimes, the initial status
+        is set for the respective values in the edge regions e.g. if a
+        minimum uptime of four timesteps is defined, the initial status is
+        fixed for the four first and last timesteps of the optimization period.
+        If both, up and downtimes are defined, the initial status is set for
+        the maximum of both e.g. for six timesteps if a minimum downtime of
+        six timesteps is defined in addition to a four timestep minimum uptime.
+    """
+    def __init__(self, **kwargs):
+        scalars = ['minimum_uptime', 'minimum_downtime', 't_start_cold',
+                   't_start_warm', 't_start_hot', 'maximum_startups',
+                   'maximum_shutdowns', 'ramp_limit_up', 'ramp_limit_down',
+                   'ramp_limit_start_up', 'ramp_limit_shut_down']
+        sequences = ['cold_start_costs', 'warm_start_cost', 'hot_start_costs',
+                     'shutdown_costs', 'optimized_status']
+        defaults = {'minimum_uptime': 0, 'minimum_downtime': 1,
+                    't_start_cold': 3, 't_start_warm': 2, 't_start_hot': 1}
+
+        for attribute in set(scalars + sequences + list(kwargs)):
+            value = kwargs.get(attribute, defaults.get(attribute))
+            setattr(self, attribute,
+                    sequence(value) if attribute in sequences else value)
+
+    @property
+    def initial_status(self):
+        """Compute and return the initial_status attribute."""
+        if self.optimized_status is None:
+            return 0
+        else:
+            return self.optimized_status[-1]
+
+    @property
+    def T_offl_min_hs(self):
+        """Compute and return the _T_offl_min_hs attribute."""
+        self._T_offl_min_hs = self.minimum_downtime + self.t_start_hot
+        return self._T_offl_min_hs
+
+    @property
+    def T_offl_min_ws(self):
+        """Compute and return the _T_offl_min_hs attribute."""
+        self._T_offl_min_ws = 8 + self.t_start_warm
+        return self._T_offl_min_ws
+
+    @property
+    def T_offl_min_cs(self):
+        """Compute and return the _T_offl_min_hs attribute."""
+        self._T_offl_min_cs = 48 + self.t_start_cold
+        return self._T_offl_min_cs
+
+    @property
+    def T_offl_th_ws(self):
+        """Compute and return the _T_offl_min_hs attribute."""
+        self._T_offl_th_ws = 8 + self.t_start_hot
+        return self._T_offl_th_ws
+
+    @property
+    def T_offl_th_cs(self):
+        """Compute and return the _T_offl_min_hs attribute."""
+        self._T_offl_th_cs = 48 + self.t_start_warm
+        return self._T_offl_th_cs
+
+    def _calculate_helper_variables(self, T=0):
+        """
+        Calculate maximum of up and downtime for direct usage in constraints.
+
+        The maximum of both is used to set the initial status for this
+        number of timesteps within the edge regions.
+        """
+        helper_variables = {'sum_start_ini': 0, 'T_ini': 0, 'Z_ini_ws': 0,
+                            'Z_ini_cs': 0, 'T_offl_possible_ws': 0,
+                            'T_offl_possible_cs': 0, 'T': T}
+        if T > 0:
+            last_state = self.optimized_status[T-1]
+            for status in reversed(self.optimized_status[:T]):
+                if (status == last_state):
+                    helper_variables['sum_start_ini'] += 1
+                    last_state = status
+                else:
+                    break
+            # T_ini
+            if (self.optimized_status[T-1] == 0) and (helper_variables['sum_start_ini'] < self.T_offl_min_hs/self.tau):
+                helper_variables['T_ini'] = min(self.T_int, self.T_offl_min_hs/self.tau-helper_variables['sum_start_ini'])
+            elif (self.optimized_status[T-1] == 0) and\
+            (self.T_offl_min_ws/self.tau > helper_variables['sum_start_ini']) and (helper_variables['sum_start_ini'] >= int(self.T_offl_th_ws/self.tau)):
+                helper_variables['T_ini'] = min(self.T_int, self.T_offl_min_ws/self.tau-helper_variables['sum_start_ini'])
+            else:
+                0
+            # Z ini warm start
+            if (self.optimized_status[T-1] == 0) and (helper_variables['sum_start_ini'] < int(self.T_offl_th_ws/self.tau)) and\
+                    (self.T_int > int(self.T_offl_th_ws/self.tau) - helper_variables['sum_start_ini']):
+                helper_variables['Z_ini_ws'] = 1
+            else:
+                helper_variables['Z_ini_ws'] = 0
+            # Z ini cold start
+            if (self.optimized_status[T-1] == 0) and (helper_variables['sum_start_ini'] < int(self.T_offl_th_cs/self.tau)) and\
+                    (self.T_int > int(self.T_offl_th_cs/self.tau) - helper_variables['sum_start_ini']):
+                helper_variables['Z_ini_cs'] = 1
+            else:
+                helper_variables['Z_ini_cs'] = 0
+            # T offl possible warm start
+            if self.T_int >= self.T_offl_min_ws/self.tau-helper_variables['sum_start_ini']:
+                helper_variables['T_offl_possible_ws'] = int(self.T_offl_min_ws/self.tau)-int(self.T_offl_th_ws/self.tau)-1
+            else:
+                helper_variables['T_offl_possible_ws'] = self.T_int-1-self.T_offl_min_ws/self.tau+helper_variables['sum_start_ini']
+            # T offl possible cold start
+            if self.T_int >= self.T_offl_min_cs/self.tau-helper_variables['sum_start_ini']:
+                helper_variables['T_offl_possible_cs'] = int(self.T_offl_min_cs/self.tau)-int(self.T_offl_th_cs/self.tau)-1
+            else:
+                helper_variables['T_offl_possible_cs'] = self.T_int-1-self.T_offl_min_cs/self.tau+helper_variables['sum_start_ini']
+        self._helper_variables = helper_variables
+
+    @property
+    def helper_variables(self):
+        """Compute and return the _helper_variables attribute."""
+        self._calculate_helper_variables()
+        return self._helper_variables

@@ -908,3 +908,526 @@ class NonConvexFlow(SimpleBlock):
             self.activity_costs = Expression(expr=activity_costs)
 
         return startup_costs + shutdown_costs + activity_costs
+
+
+class RollingHorizonFlow(SimpleBlock):
+    r"""
+    **The following sets are created:** (-> see basic sets at
+        :class:`.Model` )
+
+    A set of flows with the attribute :attr:`rollinghorizon` of type
+        :class:`.options.NonConvex`.
+    MIN_FLOWS
+        A subset of set NONCONVEX_FLOWS with the attribute :attr:`min`
+        being not None in the first timestep.
+    ACTIVITYCOSTFLOWS
+        A subset of set NONCONVEX_FLOWS with the attribute
+        :attr:`activity_costs` being not None.
+    STARTUPFLOWS
+        A subset of set NONCONVEX_FLOWS with the attribute
+        :attr:`maximum_startups` or :attr:`startup_costs`
+         being not None.
+    MAXSTARTUPFLOWS
+        A subset of set STARTUPFLOWS with the attribute
+        :attr:`maximum_startups` being not None.
+    SHUTDOWNFLOWS
+        A subset of set NONCONVEX_FLOWS with the attribute
+        :attr:`maximum_shutdowns` or :attr:`shutdown_costs`
+        being not None.
+    MAXSHUTDOWNFLOWS
+        A subset of set SHUTDOWNFLOWS with the attribute
+        :attr:`maximum_shutdowns` being not None.
+    MINUPTIMEFLOWS
+        A subset of set NONCONVEX_FLOWS with the attribute
+        :attr:`minimum_uptime` being not None.
+    MINDOWNTIMEFLOWS
+        A subset of set NONCONVEX_FLOWS with the attribute
+        :attr:`minimum_downtime` being not None.
+
+    **The following variables are created:**
+
+    Status variable (binary) :attr:`om.RollingHorizonFlow.status`:
+        Variable indicating if flow is >= 0 indexed by FLOWS
+
+    Startup variable (binary) :attr:`om.RollingHorizonFlow.startup`:
+        Variable indicating startup of flow (component) indexed by
+        STARTUPFLOWS
+
+    Shutdown variable (binary) :attr:`om.RollingHorizonFlow.shutdown`:
+        Variable indicating shutdown of flow (component) indexed by
+        SHUTDOWNFLOWS
+
+    **The following constraints are created**:
+
+    Minimum flow constraint :attr:`om.RollingHorizonFlow.min[i,o,t]`
+        .. math::
+            flow(i, o, t) \geq min(i, o, t) \cdot nominal\_value \
+                \cdot status(i, o, t), \\
+            \forall t \in \textrm{TIMESTEPS}, \\
+            \forall (i, o) \in \textrm{NONCONVEX\_FLOWS}.
+
+    Maximum flow constraint :attr:`om.RollingHorizonFlow.max[i,o,t]`
+        .. math::
+            flow(i, o, t) \leq max(i, o, t) \cdot nominal\_value \
+                \cdot status(i, o, t), \\
+            \forall t \in \textrm{TIMESTEPS}, \\
+            \forall (i, o) \in \textrm{NONCONVEX\_FLOWS}.
+
+    Startup constraint :attr:`om.RollingHorizonFlow.startup_constr[i,o,t]`
+        .. math::
+            startup(i, o, t) \geq \
+                status(i,o,t) - status(i, o, t-1) \\
+            \forall t \in \textrm{TIMESTEPS}, \\
+            \forall (i,o) \in \textrm{STARTUPFLOWS}.
+
+    Maximum startups constraint
+    :attr:`om.RollingHorizonFlow.max_startup_constr[i,o,t]`
+        .. math::
+            \sum_{t \in \textrm{TIMESTEPS}} startup(i, o, t) \leq \
+                N_{start}(i,o)
+            \forall (i,o) \in \textrm{MAXSTARTUPFLOWS}.
+
+    Shutdown constraint :attr:`om.RollingHorizonFlow.shutdown_constr[i,o,t]`
+        .. math::
+            shutdown(i, o, t) \geq \
+                status(i, o, t-1) - status(i, o, t) \\
+            \forall t \in \textrm{TIMESTEPS}, \\
+            \forall (i, o) \in \textrm{SHUTDOWNFLOWS}.
+
+    Maximum shutdowns constraint
+    :attr:`om.RollingHorizonFlow.max_startup_constr[i,o,t]`
+        .. math::
+            \sum_{t \in \textrm{TIMESTEPS}} startup(i, o, t) \leq \
+                N_{shutdown}(i,o)
+            \forall (i,o) \in \textrm{MAXSHUTDOWNFLOWS}.
+
+    Minimum uptime constraint :attr:`om.RollingHorizonFlow.uptime_constr[i,o,t]`
+        .. math::
+            (status(i, o, t)-status(i, o, t-1)) \cdot minimum\_uptime(i, o) \\
+            \leq \sum_{n=0}^{minimum\_uptime-1} status(i,o,t+n) \\
+            \forall t \in \textrm{TIMESTEPS} | \\
+            t \neq \{0..minimum\_uptime\} \cup \
+            \{t\_max-minimum\_uptime..t\_max\} , \\
+            \forall (i,o) \in \textrm{MINUPTIMEFLOWS}.
+            \\ \\
+            status(i, o, t) = initial\_status(i, o) \\
+            \forall t \in \textrm{TIMESTEPS} | \\
+            t = \{0..minimum\_uptime\} \cup \
+            \{t\_max-minimum\_uptime..t\_max\} , \\
+            \forall (i,o) \in \textrm{MINUPTIMEFLOWS}.
+
+    Minimum downtime constraint :attr:`om.RollingHorizonFlow.downtime_constr[i,o,t]`
+        .. math::
+            (status(i, o, t-1)-status(i, o, t)) \
+            \cdot minimum\_downtime(i, o) \\
+            \leq minimum\_downtime(i, o) \
+            - \sum_{n=0}^{minimum\_downtime-1} status(i,o,t+n) \\
+            \forall t \in \textrm{TIMESTEPS} | \\
+            t \neq \{0..minimum\_downtime\} \cup \
+            \{t\_max-minimum\_downtime..t\_max\} , \\
+            \forall (i,o) \in \textrm{MINDOWNTIMEFLOWS}.
+            \\ \\
+            status(i, o, t) = initial\_status(i, o) \\
+            \forall t \in \textrm{TIMESTEPS} | \\
+            t = \{0..minimum\_downtime\} \cup \
+            \{t\_max-minimum\_downtime..t\_max\} , \\
+            \forall (i,o) \in \textrm{MINDOWNTIMEFLOWS}.
+
+    **The following parts of the objective function are created:**
+
+    If :attr:`rollinghorizon.startup_costs` is set by the user:
+        .. math::
+            \sum_{i, o \in STARTUPFLOWS} \sum_t  startup(i, o, t) \
+            \cdot startup\_costs(i, o)
+
+    If :attr:`rollinghorizon.shutdown_costs` is set by the user:
+        .. math::
+            \sum_{i, o \in SHUTDOWNFLOWS} \sum_t shutdown(i, o, t) \
+                \cdot shutdown\_costs(i, o)
+
+    If :attr:`rollinghorizon.activity_costs` is set by the user:
+        .. math::
+            \sum_{i, o \in ACTIVITYCOSTFLOWS} \sum_t status(i, o, t) \
+                \cdot activity\_costs(i, o)
+
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def _create(self, group=None):
+        """ Creates set, variables, constraints for all flow object with
+        an attribute flow of type class:`.RollingHorizonFlow`.
+
+        Parameters
+        ----------
+        group : list
+            List of oemof.solph.RollingHorizonFlow objects for which
+            the constraints are build.
+        """
+        if group is None:
+            return None
+
+        m = self.parent_block()
+        # ########################## SETS #####################################
+        self.ROLLINGHORIZON_FLOWS = Set(
+                initialize=[(g[0], g[1]) for g in group])
+
+        self.MIN_FLOWS = Set(initialize=[(g[0], g[1]) for g in group
+                                         if g[2].min[0] is not None])
+        self.STARTUPFLOWS = Set(initialize=[(g[0], g[1]) for g in group
+                                if g[2].rollinghorizon.cold_start_costs[0]
+                                is not None
+                                or g[2].rollinghorizon.warm_start_cost[0]
+                                is not None
+                                or g[2].rollinghorizon.hot_start_costs[0]
+                                is not None
+                                or g[2].rollinghorizon.maximum_startups
+                                is not None])
+        self.MAXSTARTUPFLOWS = Set(initialize=[(g[0], g[1]) for g in group
+                                   if g[2].rollinghorizon.maximum_startups
+                                   is not None])
+        self.SHUTDOWNFLOWS = Set(initialize=[(g[0], g[1]) for g in group
+                                 if g[2].rollinghorizon.shutdown_costs[0]
+                                 is not None
+                                 or g[2].rollinghorizon.maximum_shutdowns
+                                 is not None])
+        self.MAXSHUTDOWNFLOWS = Set(initialize=[(g[0], g[1]) for g in group
+                                    if g[2].rollinghorizon.maximum_shutdowns
+                                    is not None])
+        self.MINUPTIMEFLOWS = Set(initialize=[(g[0], g[1]) for g in group
+                                  if g[2].rollinghorizon.minimum_uptime
+                                  is not None])
+
+        self.MINDOWNTIMEFLOWS = Set(initialize=[(g[0], g[1]) for g in group
+                                    if g[2].rollinghorizon.minimum_downtime
+                                    is not None])
+        self.RAMPUPFLOWS = Set(initialize=[(g[0], g[1]) for g in group
+                               if g[2].rollinghorizon.ramp_limit_up
+                               is not None])
+        self.RAMPDOWNFLOWS = Set(initialize=[(g[0], g[1]) for g in group
+                                 if g[2].rollinghorizon.ramp_limit_down
+                                 is not None])
+        self.RAMPSTARTFLOWS = Set(initialize=[(g[0], g[1]) for g in group
+                                  if g[2].rollinghorizon.ramp_limit_start_up
+                                  is not None])
+        self.RAMPSHUTDOWNFLOWS = Set(initialize=[(g[0], g[1]) for g in group
+                                     if g[2].rollinghorizon.ramp_limit_shut_down
+                                     is not None])
+
+        # ################### VARIABLES AND CONSTRAINTS #######################
+        self.status = Var(self.ROLLINGHORIZON_FLOWS, m.TIMESTEPS, within=Binary)
+
+        if self.STARTUPFLOWS:
+            self.costs_hs = Var(self.STARTUPFLOWS, m.TIMESTEPS, within=Binary)
+            self.costs_ws = Var(self.STARTUPFLOWS, m.TIMESTEPS, within=Binary)
+            self.costs_cs = Var(self.STARTUPFLOWS, m.TIMESTEPS, within=Binary)
+
+        def _minimum_flow_rule(block, i, o, t):
+            """Rule definition for MILP minimum flow constraints.
+            """
+            expr = (self.status[i, o, t] *
+                    m.flows[i, o].min[t] * m.flows[i, o].nominal_value <=
+                    m.flow[i, o, t])
+            return expr
+        self.min = Constraint(self.MIN_FLOWS, m.TIMESTEPS,
+                              rule=_minimum_flow_rule)
+
+        def _maximum_flow_rule(block, i, o, t):
+            """Rule definition for MILP maximum flow constraints.
+            """
+            expr = (self.status[i, o, t] *
+                    m.flows[i, o].max[t] * m.flows[i, o].nominal_value >=
+                    m.flow[i, o, t])
+            return expr
+        self.max = Constraint(self.MIN_FLOWS, m.TIMESTEPS,
+                              rule=_maximum_flow_rule)
+
+        def _startup_rule(block, i, o, t):
+            """Rule definition for startup constraint of rollinghorizon flows.
+            """
+            if t > m.TIMESTEPS[1]:
+                expr = (self.startup[i, o, t] >= self.status[i, o, t] -
+                        self.status[i, o, t-1])
+            else:
+                expr = (self.startup[i, o, t] >= self.status[i, o, t] -
+                        m.flows[i, o].rollinghorizon.initial_status)
+            return expr
+        self.startup_constr = Constraint(self.STARTUPFLOWS, m.TIMESTEPS,
+                                         rule=_startup_rule)
+
+        def _max_startup_rule(block, i, o):
+            """Rule definition for maximum number of start-ups.
+            """
+            lhs = sum(self.startup[i, o, t] for t in m.TIMESTEPS)
+            return lhs <= m.flows[i, o].rollinghorizon.maximum_startups
+        self.max_startup_constr = Constraint(self.MAXSTARTUPFLOWS,
+                                             rule=_max_startup_rule)
+
+        def _shutdown_rule(block, i, o, t):
+            """Rule definition for shutdown constraints of rollinghorizon flows.
+            """
+            if t > m.TIMESTEPS[1]:
+                expr = (self.shutdown[i, o, t] >= self.status[i, o, t-1] -
+                        self.status[i, o, t])
+            else:
+                expr = (self.shutdown[i, o, t] >=
+                        m.flows[i, o].rollinghorizon.initial_status -
+                        self.status[i, o, t])
+            return expr
+        self.shutdown_constr = Constraint(self.SHUTDOWNFLOWS, m.TIMESTEPS,
+                                          rule=_shutdown_rule)
+
+        def _max_shutdown_rule(block, i, o):
+            """Rule definition for maximum number of start-ups.
+            """
+            lhs = sum(self.shutdown[i, o, t] for t in m.TIMESTEPS)
+            return lhs <= m.flows[i, o].rollinghorizon.maximum_shutdowns
+        self.max_shutdown_constr = Constraint(self.MAXSHUTDOWNFLOWS,
+                                              rule=_max_shutdown_rule)
+
+        def _min_uptime_rule(block, i, o, t):
+            """Rule definition for min-uptime constraints of rollinghorizon flows.
+            """
+            if m.flows[i, o].rollinghorizon.max_up_down <= t\
+                    <= m.TIMESTEPS[-1]-m.flows[i, o].rollinghorizon.max_up_down:
+                expr = 0
+                expr += ((self.status[i, o, t]-self.status[i, o, t-1]) *
+                         m.flows[i, o].rollinghorizon.minimum_uptime)
+                expr += -sum(self.status[i, o, t+u] for u in range(0,
+                             m.flows[i, o].rollinghorizon.minimum_uptime))
+                return expr <= 0
+            else:
+                expr = 0
+                expr += self.status[i, o, t]
+                expr += -m.flows[i, o].rollinghorizon.initial_status
+                return expr == 0
+        self.min_uptime_constr = Constraint(
+            self.MINUPTIMEFLOWS, m.TIMESTEPS, rule=_min_uptime_rule)
+
+        def _min_downtime_rule(block, i, o, t):
+            """Rule definition for min-downtime constraints of rollinghorizon flows.
+            """
+            if m.flows[i, o].rollinghorizon.max_up_down <= t\
+                    <= m.TIMESTEPS[-1]-m.flows[i, o].rollinghorizon.max_up_down:
+                expr = 0
+                expr += ((self.status[i, o, t-1]-self.status[i, o, t]) *
+                         m.flows[i, o].rollinghorizon.minimum_downtime)
+                expr += - m.flows[i, o].rollinghorizon.minimum_downtime
+                expr += sum(self.status[i, o, t+d] for d in range(0,
+                            m.flows[i, o].rollinghorizon.minimum_downtime))
+                return expr <= 0
+            else:
+                expr = 0
+                expr += self.status[i, o, t]
+                expr += -m.flows[i, o].rollinghorizon.initial_status
+                return expr == 0
+        self.min_downtime_constr = Constraint(
+            self.MINDOWNTIMEFLOWS, m.TIMESTEPS, rule=_min_downtime_rule)
+
+        # Rolling horizon start constraints
+        def _initial_start(block, i, o, t):
+            if (m.flows[i, o].rollinghorizon.helper_variables['T'] == 0) or\
+                    (t > m.flows[i, o].rollinghorizon.helper_variables['T_ini']):
+                return Constraint.Skip
+            else:
+                return sum(self.status[i, o, h] for h in range(1, m.flows[i, o].rollinghorizon.helper_variables['T_ini']+1))\
+                    == m.flows[i, o].rollinghorizon.initial_status*m.flows[i, o].rollinghorizon.helper_variables['T_ini']
+        self.initial_start = Constraint(self.STARTUPFLOWS, m.TIMESTEPS,
+                                        rule=_initial_start)
+
+        def _initial_warm_start(block, i, o):
+            if (m.flows[i, o].rollinghorizon.helper_variables['T'] == 0) or\
+            (m.flows[i, o].rollinghorizon.helper_variables['Z_ini_ws'] == 0) or\
+            (m.flows[i, o].rollinghorizon.helper_variables['T_offl_possible_ws'] < 0):
+                return Constraint.Skip
+            else:
+                return ((((m.flows[i, o].rollinghorizon.helper_variables['T_offl_possible_ws']+1)*
+                               (1-sum(m.generator_status[u,h] for h in range(1,int(self.th_power_plants[u].T_offl_th_ws/self.tau)-sum_start_ini[u]+1)))-
+                               sum((1-m.generator_status[u,h]) for h in range(1+int(self.th_power_plants[u].T_offl_th_ws/self.tau)-sum_start_ini[u],
+                        1+int(self.th_power_plants[u].T_offl_th_ws/self.tau)-sum_start_ini[u]+m.flows[i, o].rollinghorizon.helper_variables['T_offl_possible_ws']+1)))) <= 0)
+        self.initial_warm_start = Constraint(self.STARTUPFLOWS, rule=_initial_warm_start)
+
+        def _initial_cold_start(block, i, o):
+            if (m.flows[i, o].rollinghorizon.helper_variables['T'] == 0) or (Z_ini_cs[u] == 0) or (T_offl_possible_cs[u] < 0):
+                return Constraint.Skip
+            else:
+                return ((((T_offl_possible_cs[u]+1)*(1-
+                               sum(m.generator_status[u,h] for h in range(1,int(self.th_power_plants[u].T_offl_th_cs/self.tau)-sum_start_ini[u]+1)))-
+                    sum(1-m.generator_status[u,h] for h in range(1+int(self.th_power_plants[u].T_offl_th_cs/self.tau)-sum_start_ini[u],
+                        1+int(self.th_power_plants[u].T_offl_th_cs/self.tau)-sum_start_ini[u]+T_offl_possible_cs[u]+1)))) <= 0)
+        self.initial_cold_start = Constraint(self.m.n_th_plants, rule=initial_cold_start)
+
+        def _hot_start(block, i, o, t):
+            if t > 1:
+                if (self.T_int-t) >= self.th_power_plants[u].T_offl_min_hs/self.tau-1:
+                    T_offl_hs[u,t-1] = self.th_power_plants[u].T_offl_min_hs/self.tau
+                else:
+                    T_offl_hs[u,t-1] = self.T_int - t + 1
+                return (m.generator_status[u,t-1]-m.generator_status[u,t])*\
+                    T_offl_hs[u,t-1] <= (sum((1-m.generator_status[u,h]) for h in range(t,t+T_offl_hs[u,t-1]-1+1)))
+            else:
+                return Constraint.Skip
+        self.hot_start = Constraint(self.m.n_th_plants, m.TIMESTEPS, rule=hot_start)
+
+        def _warm_start(block, i, o, t):
+            if (t > 1) and (t <= self.T_int - int(self.th_power_plants[u].T_offl_th_ws/self.tau) - 1):
+                if (self.T_int-t) >= (self.th_power_plants[u].T_offl_min_ws/self.tau-1):
+                    T_offl_ws[u,t-1] = self.th_power_plants[u].T_offl_min_ws/self.tau-\
+                    int(self.th_power_plants[u].T_offl_th_ws/self.tau)-1
+                else:
+                    T_offl_ws[u,t-1] = self.T_int - t -int(self.th_power_plants[u].T_offl_th_ws/self.tau)
+                if T_offl_ws[u,t-1] < 0:
+                    return Constraint.Skip
+                else:
+                    return (T_offl_ws[u,t-1]+1)*((m.generator_status[u,t-1]-m.generator_status[u,t])-\
+                            sum(m.generator_status[u,h] for h in range(t,t+int(self.th_power_plants[u].T_offl_th_ws/self.tau)-1+1)))\
+                            <= sum((1-m.generator_status[u,h]) for h in range(t+int(self.th_power_plants[u].T_offl_th_ws/self.tau),
+                                   t+int(self.th_power_plants[u].T_offl_th_ws/self.tau)+T_offl_ws[u,t-1]+1))
+            else:
+                return Constraint.Skip
+        self.warm_start = Constraint(self.m.n_th_plants, m.TIMESTEPS, rule=warm_start)
+
+        def _cold_start(block, i, o, t):
+            if (t > 1) and (t <= self.T_int - int(self.th_power_plants[u].T_offl_th_cs/self.tau) - 1):
+                if self.T_int - t >= self.th_power_plants[u].T_offl_min_cs/self.tau-1:
+                    T_offl_cs[u,t-1] = self.th_power_plants[u].T_offl_min_cs/self.tau-int(self.th_power_plants[u].T_offl_th_cs/self.tau)-1
+                else:
+                    T_offl_cs[u,t-1] = self.T_int - t - int(self.th_power_plants[u].T_offl_th_cs/self.tau)
+                if T_offl_cs[u,t-1] < 0:
+                    return Constraint.Skip
+                return (T_offl_cs[u,t-1]+1)*((m.generator_status[u,t-1]-m.generator_status[u,t])-\
+                        sum(m.generator_status[u,h] for h in range(t,t+int(self.th_power_plants[u].T_offl_th_cs/self.tau)-1+1)))\
+                        <= sum((1-m.generator_status[u,h]) for h in range(t+int(self.th_power_plants[u].T_offl_th_cs/self.tau),
+                               t+int(self.th_power_plants[u].T_offl_th_cs/self.tau)+T_offl_cs[u,t-1]+1))
+            else:
+                return Constraint.Skip
+        self.cold_start = Constraint(self.m.n_th_plants, m.TIMESTEPS, rule=cold_start)
+        """ Start cost constraints """
+        def _hot_start_costs(block, i, o, t):
+            if t > 1:
+                return m.costs_hs[u,t] >= self.th_power_plants[u].hot_start_costs*(m.generator_status[u,t]-m.generator_status[u,t-1])
+            else:
+                return Constraint.Skip
+        self.hot_start_costs = Constraint(self.m.n_th_plants, m.TIMESTEPS, rule=hot_start_costs)
+
+        def _warm_start_costs(block, i, o, t):
+            if t > 1:
+                if t >= self.th_power_plants[u].T_offl_min_ws/self.tau+1:
+                    T_wsc[u,t-1] = self.th_power_plants[u].T_offl_min_ws/self.tau
+                else:
+                    T_wsc[u,t-1] = t - 1
+                if ((sum_start_ini[u] + t - 1 >= self.th_power_plants[u].T_offl_min_ws/self.tau) and\
+                (m.flows[i, o].rollinghorizon.initial_status == 0)) or (t >= self.th_power_plants[u].T_offl_min_ws/self.tau + 1):
+                    xi_ini_ws[u,t-1] = 0
+                else:
+                    xi_ini_ws[u,t-1] = 1
+                return m.costs_ws[u,t] >= (self.th_power_plants[u].warm_start_cost - self.th_power_plants[u].hot_start_costs)*\
+            (m.generator_status[u,t] - sum(m.generator_status[u,h] for h in range(t-T_wsc[u,t-1],t-1+1)) - xi_ini_ws[u,t-1])
+            else:
+                return Constraint.Skip
+        self.warm_start_costs = Constraint(self.m.n_th_plants, m.TIMESTEPS, rule=warm_start_costs)
+
+        def _cold_start_costs(block, i, o, t):
+            if t > 1:
+                if t >= self.th_power_plants[u].T_offl_min_cs/self.tau + 1:
+                    T_csc[u,t-1] = self.th_power_plants[u].T_offl_min_cs/self.tau
+                else:
+                    T_csc[u,t-1] = t - 1
+                if ((sum_start_ini[u] + t - 1 >= self.th_power_plants[u].T_offl_min_cs/self.tau) and\
+                (m.flows[i, o].rollinghorizon.initial_status == 0)) or (t >= self.th_power_plants[u].T_offl_min_cs/self.tau + 1):
+                    xi_ini_cs[u,t-1] = 0
+                else:
+                    xi_ini_cs[u,t-1] = 1
+                return m.costs_cs[u,t] >= (self.th_power_plants[u].cold_start_cost - self.th_power_plants[u].warm_start_cost)*\
+            (m.generator_status[u,t] - sum(m.generator_status[u,h] for h in range(t-T_csc[u,t-1],t-1+1)) - xi_ini_cs[u,t-1])
+            else:
+                return Constraint.Skip
+        self.cold_start_costs = Constraint(self.m.n_th_plants, m.TIMESTEPS, rule=cold_start_costs)
+
+        def _ramp_down(block, i, o, t):
+            if (m.flows[i, o].rollinghorizon.helper_variables['T'] == 0) & (t == 1):
+                return Constraint.Skip
+            if t == 1:
+                return (self.th_power_plants[u].p_set[m.flows[i, o].rollinghorizon.helper_variables['T']-1])-(
+                    m.P_el_generator[u,t]+m.generator_status[u,t]*\
+            self.th_power_plants[u].p_nom*self.th_power_plants[u].p_min_pu[t+m.flows[i, o].rollinghorizon.helper_variables['T']-1])\
+                        <= (self.th_power_plants[u].ramp_limit_down*self.tau*
+                            m.generator_status[u,t]+(
+                                    self.th_power_plants[u].p_nom*self.th_power_plants[u].p_min_pu[t+m.flows[i, o].rollinghorizon.helper_variables['T']-1]+
+                                    0.5*self.th_power_plants[u].ramp_limit_down*
+                                    self.tau)*(1-m.generator_status[u,t]))
+            else:
+                return (m.P_el_generator[u,t-1]+m.generator_status[u,t-1]*\
+            self.th_power_plants[u].p_nom*self.th_power_plants[u].p_min_pu[t-1+m.flows[i, o].rollinghorizon.helper_variables['T']-1])-(
+                    m.P_el_generator[u,t]+m.generator_status[u,t]*\
+            self.th_power_plants[u].p_nom*self.th_power_plants[u].p_min_pu[t+m.flows[i, o].rollinghorizon.helper_variables['T']-1])\
+                        <= (self.th_power_plants[u].ramp_limit_down*self.tau*
+                            m.generator_status[u,t]+(
+                                    self.th_power_plants[u].p_nom*self.th_power_plants[u].p_min_pu[t+m.flows[i, o].rollinghorizon.helper_variables['T']-1]+
+                                    0.5*self.th_power_plants[u].ramp_limit_down*
+                                    self.tau)*(1-m.generator_status[u,t]))
+        self.ramp_down = Constraint(self.m.n_th_plants, m.TIMESTEPS, rule=ramp_down)
+
+        def _ramp_up(block, i, o, t):
+            if (m.flows[i, o].rollinghorizon.helper_variables['T'] == 0) & (t == 1):
+                    return Constraint.Skip
+            if t == 1:
+                return (m.P_el_generator[u,t]+m.generator_status[u,t]*\
+            self.th_power_plants[u].p_nom*self.th_power_plants[u].p_min_pu[t+m.flows[i, o].rollinghorizon.helper_variables['T']-1])-(self.th_power_plants[u].p_set[m.flows[i, o].rollinghorizon.helper_variables['T']-1])\
+                        <= (self.th_power_plants[u].ramp_limit_up*self.tau*
+                            m.flows[i, o].rollinghorizon.initial_status+(
+                                    self.th_power_plants[u].p_nom*self.th_power_plants[u].p_min_pu[m.flows[i, o].rollinghorizon.helper_variables['T']-1]+
+                                    0.5*self.th_power_plants[u].ramp_limit_up*
+                                    self.tau)*(1-m.flows[i, o].rollinghorizon.initial_status))
+            else:
+                return (m.P_el_generator[u,t]+m.generator_status[u,t]*\
+            self.th_power_plants[u].p_nom*self.th_power_plants[u].p_min_pu[t+m.flows[i, o].rollinghorizon.helper_variables['T']-1])-(m.P_el_generator[u,t-1]+m.generator_status[u,t-1]*\
+            self.th_power_plants[u].p_nom*self.th_power_plants[u].p_min_pu[t-1+m.flows[i, o].rollinghorizon.helper_variables['T']-1])\
+                        <= (self.th_power_plants[u].ramp_limit_up*self.tau*
+                            m.generator_status[u,t-1]+(
+                                    self.th_power_plants[u].p_nom*self.th_power_plants[u].p_min_pu[t-1+m.flows[i, o].rollinghorizon.helper_variables['T']-1]+
+                                    0.5*self.th_power_plants[u].ramp_limit_up*
+                                    self.tau)*(1-m.generator_status[u,t-1]))
+        self.ramp_up = Constraint(self.m.n_th_plants, m.TIMESTEPS, rule=ramp_up)
+
+    def _objective_expression(self):
+        r"""Objective expression for rollinghorizon flows.
+        """
+        if not hasattr(self, 'ROLLINGHORIZON_FLOWS'):
+            return 0
+
+        m = self.parent_block()
+
+        startup_costs = 0
+        shutdown_costs = 0
+        activity_costs = 0
+
+        if self.STARTUPFLOWS:
+            for i, o in self.STARTUPFLOWS:
+                if m.flows[i, o].rollinghorizon.startup_costs[0] is not None:
+                    startup_costs += sum(
+                        self.startup[i, o, t] *
+                        m.flows[i, o].rollinghorizon.startup_costs[t]
+                        for t in m.TIMESTEPS)
+            self.startup_costs = Expression(expr=startup_costs)
+
+        if self.SHUTDOWNFLOWS:
+            for i, o in self.SHUTDOWNFLOWS:
+                if m.flows[i, o].rollinghorizon.shutdown_costs[0] is not None:
+                    shutdown_costs += sum(
+                        self.shutdown[i, o, t] *
+                        m.flows[i, o].rollinghorizon.shutdown_costs[t]
+                        for t in m.TIMESTEPS)
+            self.shutdown_costs = Expression(expr=shutdown_costs)
+
+        if self.ACTIVITYCOSTFLOWS:
+            for i, o in self.ACTIVITYCOSTFLOWS:
+                if m.flows[i, o].rollinghorizon.activity_costs[0] is not None:
+                    activity_costs += sum(
+                        self.status[i, o, t] *
+                        m.flows[i, o].rollinghorizon.activity_costs[t]
+                        for t in m.TIMESTEPS)
+
+            self.activity_costs = Expression(expr=activity_costs)
+
+        return startup_costs + shutdown_costs + activity_costs

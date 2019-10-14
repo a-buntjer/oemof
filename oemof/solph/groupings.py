@@ -79,6 +79,18 @@ nonconvex_flow_grouping = groupings.FlowsWithNodes(
     constant_key=blocks.NonConvexFlow,
     filter=_nonconvex_grouping)
 
+def _rollinghorizon_grouping(stf):
+    if hasattr(stf[2], 'rollinghorizon'):
+        if stf[2].rollinghorizon is not None:
+            return True
+    else:
+        return False
+
+rollinghorizon_flow_grouping = groupings.FlowsWithNodes(
+    constant_key=blocks.NonConvexFlow,
+    filter=_rollinghorizon_grouping)
+
 
 GROUPINGS = [constraint_grouping, investment_flow_grouping,
-             standard_flow_grouping, nonconvex_flow_grouping]
+             standard_flow_grouping, nonconvex_flow_grouping,
+             rollinghorizon_flow_grouping]
