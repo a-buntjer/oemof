@@ -156,7 +156,8 @@ class Flow(on.Edge):
         super().__init__()
 
         scalars = ['nominal_value', 'summed_max', 'summed_min',
-                   'investment', 'nonconvex', 'integer', 'fixed']
+                   'investment', 'nonconvex', 'rollinghorizon',
+                   'integer', 'fixed']
         sequences = ['actual_value', 'variable_costs', 'min', 'max']
         dictionaries = ['positive_gradient', 'negative_gradient']
         defaults = {'fixed': False, 'min': 0, 'max': 1, 'variable_costs': 0,
@@ -188,6 +189,9 @@ class Flow(on.Edge):
         if self.investment and self.nonconvex:
             raise ValueError("Investment flows cannot be combined with " +
                              "nonconvex flows!")
+        if self.rollinghorizon and self.nonconvex:
+            raise ValueError("RollingHorizon flows cannot be combined with " +
+                             "nonconvex flows but it is already nonconvex!")
 
 
 class Bus(on.Bus):

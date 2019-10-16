@@ -143,16 +143,27 @@ class RollingHorizon:
         scalars = ['minimum_uptime', 'minimum_downtime', 't_start_cold',
                    't_start_warm', 't_start_hot', 'maximum_startups',
                    'maximum_shutdowns', 'ramp_limit_up', 'ramp_limit_down',
-                   'ramp_limit_start_up', 'ramp_limit_shut_down']
-        sequences = ['cold_start_costs', 'warm_start_cost', 'hot_start_costs',
-                     'shutdown_costs', 'optimized_status']
+                   'ramp_limit_start_up', 'ramp_limit_shut_down', 'tau',
+                   't_warm', 't_cold', 'T_int', 'flow_min_last', 'T']
+        sequences = ['cold_start_costs', 'warm_start_costs', 'hot_start_costs',
+                     'shutdown_costs']
         defaults = {'minimum_uptime': 0, 'minimum_downtime': 1,
-                    't_start_cold': 3, 't_start_warm': 2, 't_start_hot': 1}
+                    't_start_cold': 3, 't_start_warm': 2, 't_start_hot': 1,
+                    'tau': 1, 't_warm': 8, 't_cold': 48, 'T_int': 0, 'T':0}
 
         for attribute in set(scalars + sequences + list(kwargs)):
             value = kwargs.get(attribute, defaults.get(attribute))
             setattr(self, attribute,
                     sequence(value) if attribute in sequences else value)
+        self.optimized_status = [0 for x in range(self.T_int+1)]
+        self.optimized_flow = [0 for x in range(self.T_int+1)]
+        self.T_offl_hs = [0 for x in range(self.T_int+1)]
+        self.T_offl_ws = [0 for x in range(self.T_int+1)]
+        self.T_offl_cs = [0 for x in range(self.T_int+1)]
+        self.T_wsc = [0 for x in range(self.T_int+1)]
+        self.T_csc = [0 for x in range(self.T_int+1)]
+        self.xi_ini_ws = [0 for x in range(self.T_int+1)]
+        self.xi_ini_cs = [0 for x in range(self.T_int+1)]
 
     @property
     def initial_status(self):
@@ -160,39 +171,46 @@ class RollingHorizon:
         if self.optimized_status is None:
             return 0
         else:
-            return self.optimized_status[-1]
+            return self.optimized_status[self.T-1]
 
     @property
     def T_offl_min_hs(self):
         """Compute and return the _T_offl_min_hs attribute."""
-        self._T_offl_min_hs = self.minimum_downtime + self.t_start_hot
+        self._T_offl_min_hs = int((
+                self.minimum_downtime + self.t_start_hot)/self.tau)
         return self._T_offl_min_hs
 
     @property
     def T_offl_min_ws(self):
         """Compute and return the _T_offl_min_hs attribute."""
-        self._T_offl_min_ws = 8 + self.t_start_warm
+        self._T_offl_min_ws = int((self.t_warm + self.t_start_warm)/self.tau)
         return self._T_offl_min_ws
 
     @property
     def T_offl_min_cs(self):
         """Compute and return the _T_offl_min_hs attribute."""
-        self._T_offl_min_cs = 48 + self.t_start_cold
+        self._T_offl_min_cs = int((self.t_cold + self.t_start_cold)/self.tau)
         return self._T_offl_min_cs
 
     @property
     def T_offl_th_ws(self):
         """Compute and return the _T_offl_min_hs attribute."""
-        self._T_offl_th_ws = 8 + self.t_start_hot
+        self._T_offl_th_ws = int((self.t_warm + self.t_start_hot)/self.tau)
         return self._T_offl_th_ws
 
     @property
     def T_offl_th_cs(self):
         """Compute and return the _T_offl_min_hs attribute."""
-        self._T_offl_th_cs = 48 + self.t_start_warm
+        self._T_offl_th_cs = int((self.t_cold + self.t_start_warm)/self.tau)
         return self._T_offl_th_cs
 
-    def _calculate_helper_variables(self, T=0):
+    @property
+    def T_up_min(self):
+        """Compute and return the _T_offl_min_hs attribute."""
+        self._T_up_min = (self.minimum_uptime)/self.tau
+        return self._T_up_min
+
+    def _calculate_helper_variables(self):
         """
         Calculate maximum of up and downtime for direct usage in constraints.
 
@@ -201,45 +219,82 @@ class RollingHorizon:
         """
         helper_variables = {'sum_start_ini': 0, 'T_ini': 0, 'Z_ini_ws': 0,
                             'Z_ini_cs': 0, 'T_offl_possible_ws': 0,
-                            'T_offl_possible_cs': 0, 'T': T}
-        if T > 0:
-            last_state = self.optimized_status[T-1]
-            for status in reversed(self.optimized_status[:T]):
+                            'T_offl_possible_cs': 0}
+        if self.T > 0:
+            last_state = self.optimized_status[self.T-1]
+            for status in reversed(self.optimized_status[:self.T]):
                 if (status == last_state):
                     helper_variables['sum_start_ini'] += 1
                     last_state = status
                 else:
                     break
             # T_ini
-            if (self.optimized_status[T-1] == 0) and (helper_variables['sum_start_ini'] < self.T_offl_min_hs/self.tau):
-                helper_variables['T_ini'] = min(self.T_int, self.T_offl_min_hs/self.tau-helper_variables['sum_start_ini'])
-            elif (self.optimized_status[T-1] == 0) and\
-            (self.T_offl_min_ws/self.tau > helper_variables['sum_start_ini']) and (helper_variables['sum_start_ini'] >= int(self.T_offl_th_ws/self.tau)):
-                helper_variables['T_ini'] = min(self.T_int, self.T_offl_min_ws/self.tau-helper_variables['sum_start_ini'])
+            if (self.initial_status == 0) and\
+                    (helper_variables['sum_start_ini'] <
+                     self.T_offl_min_hs):
+                helper_variables['T_ini'] =\
+                    min(self.T_int, self.T_offl_min_hs -
+                        helper_variables['sum_start_ini'])
+            elif (self.initial_status == 0) and\
+                    (self.T_offl_min_ws >
+                     helper_variables['sum_start_ini']) and\
+                    (helper_variables['sum_start_ini'] >= self.T_offl_th_ws):
+                helper_variables['T_ini'] =\
+                    min(self.T_int, self.T_offl_min_ws -
+                        helper_variables['sum_start_ini'])
+            elif (self.initial_status == 0) and\
+                    (self.T_offl_min_cs >
+                     helper_variables['sum_start_ini']) and\
+                    (helper_variables['sum_start_ini'] >= self.T_offl_th_cs):
+                helper_variables['T_ini'] =\
+                    min(self.T_int, self.T_offl_min_cs -
+                        helper_variables['sum_start_ini'])
+            elif (self.initial_status == 1) and\
+                    (helper_variables['sum_start_ini'] <
+                     self.T_up_min):
+                helper_variables['T_ini'] =\
+                    min(self.T_int, self.T_up_min -
+                        helper_variables['sum_start_ini'])
             else:
                 0
             # Z ini warm start
-            if (self.optimized_status[T-1] == 0) and (helper_variables['sum_start_ini'] < int(self.T_offl_th_ws/self.tau)) and\
-                    (self.T_int > int(self.T_offl_th_ws/self.tau) - helper_variables['sum_start_ini']):
+            if (self.initial_status == 0) and\
+                    (helper_variables['sum_start_ini'] <
+                     self.T_offl_th_ws) and\
+                    (self.T_int > self.T_offl_th_ws -
+                     helper_variables['sum_start_ini']):
                 helper_variables['Z_ini_ws'] = 1
             else:
                 helper_variables['Z_ini_ws'] = 0
             # Z ini cold start
-            if (self.optimized_status[T-1] == 0) and (helper_variables['sum_start_ini'] < int(self.T_offl_th_cs/self.tau)) and\
-                    (self.T_int > int(self.T_offl_th_cs/self.tau) - helper_variables['sum_start_ini']):
+            if (self.initial_status == 0) and\
+                    (helper_variables['sum_start_ini'] <
+                     self.T_offl_th_cs) and\
+                    (self.T_int > self.T_offl_th_cs -
+                     helper_variables['sum_start_ini']):
                 helper_variables['Z_ini_cs'] = 1
             else:
                 helper_variables['Z_ini_cs'] = 0
             # T offl possible warm start
-            if self.T_int >= self.T_offl_min_ws/self.tau-helper_variables['sum_start_ini']:
-                helper_variables['T_offl_possible_ws'] = int(self.T_offl_min_ws/self.tau)-int(self.T_offl_th_ws/self.tau)-1
+            if self.T_int >= self.T_offl_min_ws -\
+                    helper_variables['sum_start_ini']:
+                helper_variables['T_offl_possible_ws'] =\
+                    self.T_offl_min_ws -\
+                    self.T_offl_th_ws-1
             else:
-                helper_variables['T_offl_possible_ws'] = self.T_int-1-self.T_offl_min_ws/self.tau+helper_variables['sum_start_ini']
+                helper_variables['T_offl_possible_ws'] =\
+                    self.T_int-1-self.T_offl_min_ws +\
+                    helper_variables['sum_start_ini']
             # T offl possible cold start
-            if self.T_int >= self.T_offl_min_cs/self.tau-helper_variables['sum_start_ini']:
-                helper_variables['T_offl_possible_cs'] = int(self.T_offl_min_cs/self.tau)-int(self.T_offl_th_cs/self.tau)-1
+            if self.T_int >= self.T_offl_min_cs -\
+                    helper_variables['sum_start_ini']:
+                helper_variables['T_offl_possible_cs'] =\
+                    self.T_offl_min_cs -\
+                    self.T_offl_th_cs-1
             else:
-                helper_variables['T_offl_possible_cs'] = self.T_int-1-self.T_offl_min_cs/self.tau+helper_variables['sum_start_ini']
+                helper_variables['T_offl_possible_cs'] =\
+                    self.T_int-1-self.T_offl_min_cs +\
+                    helper_variables['sum_start_ini']
         self._helper_variables = helper_variables
 
     @property

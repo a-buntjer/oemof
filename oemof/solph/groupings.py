@@ -87,7 +87,7 @@ def _rollinghorizon_grouping(stf):
         return False
 
 rollinghorizon_flow_grouping = groupings.FlowsWithNodes(
-    constant_key=blocks.NonConvexFlow,
+    constant_key=blocks.RollingHorizonFlow,
     filter=_rollinghorizon_grouping)
 
 
