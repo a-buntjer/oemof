@@ -261,7 +261,7 @@ class Model(BaseModel):
     """
     CONSTRAINT_GROUPS = [blocks.Bus, blocks.Transformer,
                          blocks.InvestmentFlow, blocks.Flow,
-                         blocks.NonConvexFlow, blocks.RollingHorizonFlow]
+                         blocks.NonConvexFlow]
 
     def __init__(self, energysystem, **kwargs):
         super().__init__(energysystem, **kwargs)
@@ -310,7 +310,7 @@ class Model(BaseModel):
                     self.flow[o, i, t].setub(self.flows[o, i].max[t] *
                                              self.flows[o, i].nominal_value)
 
-                    if self.flows[o, i].actual_value[t] is not None:
+                    if (self.flows[o, i].actual_value[t] is not None):
                         # pre- optimized value of flow variable
                         self.flow[o, i, t].value = (
                             self.flows[o, i].actual_value[t] *
@@ -318,10 +318,203 @@ class Model(BaseModel):
                         # fix variable if flow is fixed
                         if self.flows[o, i].fixed:
                             self.flow[o, i, t].fix()
+                    if not (self.flows[o, i].nonconvex):
+                        # lower bound of flow variable
+                        self.flow[o, i, t].setlb(
+                            self.flows[o, i].min[t] *
+                            self.flows[o, i].nominal_value)
 
+
+class MultiPeriodModel(BaseModel):
+    """ An  energy system model for operational and investment
+    optimization.
+
+    Parameters
+    ----------
+    energysystem : EnergySystem object
+        Object that holds the nodes of an oemof energy system graph
+    constraint_groups : list
+        Solph looks for these groups in the given energy system and uses them
+        to create the constraints of the optimization problem.
+        Defaults to :const:`Model.CONSTRAINTS`
+
+    **The following basic sets are created**:
+
+    NODES :
+        A set with all nodes of the given energy system.
+
+    TIMESTEPS :
+        A set with all timesteps of the given time horizon.
+
+    FLOWS :
+        A 2 dimensional set with all flows. Index: `(source, target)`
+
+    **The following basic variables are created**:
+
+    flow
+        Flow from source to target indexed by FLOWS, TIMESTEPS.
+        Note: Bounds of this variable are set depending on attributes of
+        the corresponding flow object.
+
+    """
+    CONSTRAINT_GROUPS = [blocks.Bus, blocks.Transformer,
+                         blocks.InvestmentFlow, blocks.Flow,
+                         blocks.NonConvexFlow, blocks.RollingHorizonFlow]
+
+    def __init__(self, energysystem, interval_length, **kwargs):
+        self.interval_length = interval_length
+        self.multiperiod_results = None
+        self.multi_period_timeindex = energysystem.timeindex
+        energysystem.timeindex = self.multi_period_timeindex[:self.interval_length]
+        super().__init__(energysystem, **kwargs)
+
+    @property
+    def last_t_in_interval(self):
+        _last_t_in_interval = self.interval_length - 1
+        return _last_t_in_interval
+
+    @property
+    def total_optimization_period(self):
+        _total_optimization_period = [x for x in range(self.interval_length,
+                                      len(self.multi_period_timeindex),
+                                      self.interval_length)]
+        return _total_optimization_period
+
+    def _add_parent_block_sets(self):
+        """
+        """
+        # set with all nodes
+        self.NODES = po.Set(initialize=[n for n in self.es.nodes])
+
+        # pyomo set for timesteps of optimization problem
+        self.TIMESTEPS = po.Set(initialize=range(len(self.es.timeindex)),
+                                ordered=True)
+
+        # previous timesteps
+        previous_timesteps = [x - 1 for x in self.TIMESTEPS]
+        previous_timesteps[0] = self.TIMESTEPS.last()
+
+        self.previous_timesteps = dict(zip(self.TIMESTEPS, previous_timesteps))
+
+        # pyomo set for all flows in the energy system graph
+        self.FLOWS = po.Set(initialize=self.flows.keys(),
+                            ordered=True, dimen=2)
+
+        self.BIDIRECTIONAL_FLOWS = po.Set(initialize=[
+            k for (k, v) in self.flows.items() if hasattr(v, 'bidirectional')],
+                                          ordered=True, dimen=2,
+                                          within=self.FLOWS)
+
+        self.UNIDIRECTIONAL_FLOWS = po.Set(
+            initialize=[k for (k, v) in self.flows.items() if not
+                        hasattr(v, 'bidirectional')],
+            ordered=True, dimen=2, within=self.FLOWS)
+
+    def _add_parent_block_variables(self):
+        """
+        """
+        self.flow = po.Var(self.FLOWS, self.TIMESTEPS,
+                           within=po.Reals)
+
+        for (o, i) in self.FLOWS:
+            for t in self.TIMESTEPS:
+                if (o, i) in self.UNIDIRECTIONAL_FLOWS:
+                    self.flow[o, i, t].setlb(0)
+                if self.flows[o, i].nominal_value is not None:
+                    self.flow[o, i, t].setub(self.flows[o, i].max[t] *
+                                             self.flows[o, i].nominal_value)
+
+                    if (self.flows[o, i].actual_value[t] is not None and
+                            self.flows[o, i].rollinghorizon is None):
+                        # pre- optimized value of flow variable
+                        self.flow[o, i, t].value = (
+                            self.flows[o, i].actual_value[t] *
+                            self.flows[o, i].nominal_value)
+                        # fix variable if flow is fixed
+                        if self.flows[o, i].fixed:
+                            self.flow[o, i, t].fix()
                     if not (self.flows[o, i].nonconvex or
                             self.flows[o, i].rollinghorizon):
                         # lower bound of flow variable
                         self.flow[o, i, t].setlb(
                             self.flows[o, i].min[t] *
                             self.flows[o, i].nominal_value)
+                    if self.flows[o, i].rollinghorizon:
+                        self.flows[o, i].rollinghorizon.T_int =\
+                            self.last_t_in_interval
+
+    def solve(self, solver='cbc', solver_io='lp', **kwargs):
+        r""" Takes care of communication with solver to solve the model.
+
+        Parameters
+        ----------
+        solver : string
+            solver to be used e.g. "glpk","gurobi","cplex"
+        solver_io : string
+            pyomo solver interface file format: "lp","python","nl", etc.
+        \**kwargs : keyword arguments
+            Possible keys can be set see below:
+
+        Other Parameters
+        ----------------
+        solve_kwargs : dict
+            Other arguments for the pyomo.opt.SolverFactory.solve() method
+            Example : {"tee":True}
+        cmdline_options : dict
+            Dictionary with command line options for solver e.g.
+            {"mipgap":"0.01"} results in "--mipgap 0.01"
+            {"interior":" "} results in "--interior"
+            Gurobi solver takes numeric parameter values such as
+            {"method": 2}
+
+        """
+        solve_kwargs = kwargs.get('solve_kwargs', {})
+        solver_cmdline_options = kwargs.get("cmdline_options", {})
+
+        opt = SolverFactory(solver, solver_io=solver_io)
+        # set command line options
+        options = opt.options
+        for k in solver_cmdline_options:
+            options[k] = solver_cmdline_options[k]
+        print(self.total_optimization_period)
+        self.es.results = {}
+        self.solver_results = {}
+        for T in self.total_optimization_period:
+            solver_results = opt.solve(self, **solve_kwargs)
+
+            status = solver_results["Solver"][0]["Status"].key
+            termination_condition = (
+                solver_results["Solver"][0]["Termination condition"].key)
+
+            if status == "ok" and termination_condition == "optimal":
+                logging.info("Optimization successful...")
+            else:
+                msg = ("Optimization ended with status {0} and termination "
+                       "condition {1}")
+                warnings.warn(msg.format(status, termination_condition),
+                              UserWarning)
+            self.es.results[T-self.interval_length] = solver_results
+            self.solver_results[T-self.interval_length] = solver_results
+
+            if self.multiperiod_results is None:
+                self.multiperiod_results = self.results()
+            else:
+                for key, value in self.results().items():
+                    for key2, value2 in value.items():
+                        self.multiperiod_results[key][key2] =\
+                            self.multiperiod_results[key][key2].append(
+                                    value2)
+            for (o, i) in self.FLOWS:
+                for t in self.TIMESTEPS:
+                    if (self.flows[o, i].actual_value[t] is not None):
+                        self.flow[o, i, t].value = (
+                            self.flows[o, i].actual_value[t+T] *
+                            self.flows[o, i].nominal_value)
+                    if self.flows[o, i].rollinghorizon:
+                        self.flows[o, i].rollinghorizon.T = T
+                        self.flows[o, i].rollinghorizon.optimized_status[
+                                T-len(self.es.timeindex):T] =\
+                            list(self.RollingHorizonFlow.status[o, i, :]())
+            self.es.timeindex = self.multi_period_timeindex[
+                    T:T+self.interval_length]
+        return solver_results

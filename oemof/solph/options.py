@@ -149,7 +149,7 @@ class RollingHorizon:
                      'shutdown_costs']
         defaults = {'minimum_uptime': 0, 'minimum_downtime': 1,
                     't_start_cold': 3, 't_start_warm': 2, 't_start_hot': 1,
-                    'tau': 1, 't_warm': 8, 't_cold': 48, 'T_int': 0, 'T':0}
+                    'tau': 1, 't_warm': 8, 't_cold': 48, 'T_int': 23, 'T':0}
 
         for attribute in set(scalars + sequences + list(kwargs)):
             value = kwargs.get(attribute, defaults.get(attribute))

@@ -1197,6 +1197,7 @@ class RollingHorizonFlow(SimpleBlock):
                     m.flows[i, o].rollinghorizon.T_offl_hs[t] =\
                         m.flows[i, o].rollinghorizon.T_offl_min_hs
                 else:
+                    print(m.flows[i, o].rollinghorizon.T_int, t)
                     m.flows[i, o].rollinghorizon.T_offl_hs[t] =\
                         m.flows[i, o].rollinghorizon.T_int - t + 1
                 return (self.status[i, o, t-1]-self.status[i, o ,t])*\
@@ -1300,11 +1301,14 @@ class RollingHorizonFlow(SimpleBlock):
         def _cold_start_costs(block, i, o, t):
             if t > 0:
                 if t >= m.flows[i, o].rollinghorizon.T_offl_min_cs:
-                    m.flows[i, o].rollinghorizon.T_csc[t] = m.flows[i, o].rollinghorizon.T_offl_min_cs
+                    m.flows[i, o].rollinghorizon.T_csc[t] =\
+                        m.flows[i, o].rollinghorizon.T_offl_min_cs
                 else:
                     m.flows[i, o].rollinghorizon.T_csc[t] = t
-                if ((m.flows[i, o].rollinghorizon.helper_variables['sum_start_ini'] + t >= m.flows[i, o].rollinghorizon.T_offl_min_cs) and\
-                (m.flows[i, o].rollinghorizon.initial_status == 0)) or (t >= m.flows[i, o].rollinghorizon.T_offl_min_cs):
+                if ((m.flows[i, o].rollinghorizon.helper_variables['sum_start_ini'] +
+                     t >= m.flows[i, o].rollinghorizon.T_offl_min_cs) and
+                        (m.flows[i, o].rollinghorizon.initial_status == 0) or
+                        (t >= m.flows[i, o].rollinghorizon.T_offl_min_cs)):
                     m.flows[i, o].rollinghorizon.xi_ini_cs[t] = 0
                 else:
                     m.flows[i, o].rollinghorizon.xi_ini_cs[t] = 1
