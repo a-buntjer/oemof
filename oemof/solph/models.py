@@ -93,7 +93,6 @@ class BaseModel(po.ConcreteModel):
         self.solver_results = None
         self.dual = None
         self.rc = None
-
         if kwargs.get("auto_construct", True):
             self._construct()
 
@@ -361,23 +360,33 @@ class MultiPeriodModel(BaseModel):
                          blocks.InvestmentFlow, blocks.Flow,
                          blocks.NonConvexFlow, blocks.RollingHorizonFlow]
 
-    def __init__(self, energysystem, interval_length, **kwargs):
+    def __init__(self, energysystem, interval_length, period, **kwargs):
+        self.period = period
         self.interval_length = interval_length
+        self.last_t_in_interval = interval_length - 1
         self.multiperiod_results = None
         self.multi_period_timeindex = energysystem.timeindex
-        energysystem.timeindex = self.multi_period_timeindex[:self.interval_length]
+        energysystem.timeindex =\
+            self.multi_period_timeindex[:self.interval_length]
         super().__init__(energysystem, **kwargs)
+
 
     @property
     def last_t_in_interval(self):
         _last_t_in_interval = self.interval_length - 1
         return _last_t_in_interval
 
+    @last_t_in_interval.setter
+    def last_t_in_interval(self, interval_length):
+        if interval_length < self.period:
+            raise ValueError(
+                    "interval_length must be greater or equal to period")
+
     @property
     def total_optimization_period(self):
-        _total_optimization_period = [x for x in range(self.interval_length,
+        _total_optimization_period = [x for x in range(self.period,
                                       len(self.multi_period_timeindex),
-                                      self.interval_length)]
+                                      self.period)]
         return _total_optimization_period
 
     def _add_parent_block_sets(self):
@@ -442,6 +451,7 @@ class MultiPeriodModel(BaseModel):
                     if self.flows[o, i].rollinghorizon:
                         self.flows[o, i].rollinghorizon.T_int =\
                             self.last_t_in_interval
+                        self.flows[o, i].rollinghorizon.setup_multi_period_containers()
 
     def solve(self, solver='cbc', solver_io='lp', **kwargs):
         r""" Takes care of communication with solver to solve the model.
@@ -487,10 +497,11 @@ class MultiPeriodModel(BaseModel):
                 solver_results["Solver"][0]["Termination condition"].key)
 
             if status == "ok" and termination_condition == "optimal":
-                logging.info("Optimization successful...")
+                logging.info(
+                        f"Optimization of time interval: {T} successful...")
             else:
-                msg = ("Optimization ended with status {0} and termination "
-                       "condition {1}")
+                msg = (f"Optimization ended in time interval: {T}"
+                       "with status {0} and termination condition {1}")
                 warnings.warn(msg.format(status, termination_condition),
                               UserWarning)
             self.es.results[T-self.interval_length] = solver_results

@@ -149,12 +149,14 @@ class RollingHorizon:
                      'shutdown_costs']
         defaults = {'minimum_uptime': 0, 'minimum_downtime': 1,
                     't_start_cold': 3, 't_start_warm': 2, 't_start_hot': 1,
-                    'tau': 1, 't_warm': 8, 't_cold': 48, 'T_int': 23, 'T':0}
+                    'tau': 1, 't_warm': 8, 't_cold': 48, 'T_int': 23, 'T': 0}
 
         for attribute in set(scalars + sequences + list(kwargs)):
             value = kwargs.get(attribute, defaults.get(attribute))
             setattr(self, attribute,
                     sequence(value) if attribute in sequences else value)
+
+    def setup_multi_period_containers(self):
         self.optimized_status = [0 for x in range(self.T_int+1)]
         self.optimized_flow = [0 for x in range(self.T_int+1)]
         self.T_offl_hs = [0 for x in range(self.T_int+1)]

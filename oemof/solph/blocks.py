@@ -1180,33 +1180,37 @@ class RollingHorizonFlow(SimpleBlock):
             if (m.flows[i, o].rollinghorizon.T == 0) or (m.flows[i, o].rollinghorizon.helper_variables['Z_ini_cs'] == 0) or (m.flows[i, o].rollinghorizon.helper_variables['T_offl_possible_cs'] < 0):
                 return Constraint.Skip
             else:
-                return ((((m.flows[i, o].rollinghorizon.helper_variables['T_offl_possible_cs']+1)*(1-
-                               sum(m.flows[i, o].rollinghorizon.optimized_status[h] for h in
-                                   range(0, m.flows[i, o].rollinghorizon.T_offl_th_cs-m.flows[i, o].rollinghorizon.helper_variables['sum_start_ini']))) -
+                return ((m.flows[i, o].rollinghorizon.helper_variables['T_offl_possible_cs']+1) *
+                        (1-sum(m.flows[i, o].rollinghorizon.optimized_status[h] for h in
+                               range(0, m.flows[i, o].rollinghorizon.T_offl_th_cs -
+                                     m.flows[i, o].rollinghorizon.helper_variables['sum_start_ini']))) -
                     sum(1-m.flows[i, o].rollinghorizon.optimized_status[h] for h in
                         range(m.flows[i, o].rollinghorizon.T_offl_th_cs -
                               m.flows[i, o].rollinghorizon.helper_variables['sum_start_ini'],
                               1+m.flows[i, o].rollinghorizon.T_offl_th_cs -
                               m.flows[i, o].rollinghorizon.helper_variables['sum_start_ini'] +
-                              m.flows[i, o].rollinghorizon.helper_variables['T_offl_possible_cs'])))) <= 0)
-        self.initial_cold_start = Constraint(self.STARTUPFLOWS, rule=_initial_cold_start)
+                              m.flows[i, o].rollinghorizon.helper_variables['T_offl_possible_cs']))) <= 0
+        self.initial_cold_start = Constraint(self.STARTUPFLOWS,
+                                             rule=_initial_cold_start)
 
         def _hot_start(block, i, o, t):
             if t > 0:
-                if (m.flows[i, o].rollinghorizon.T_int-t) >= m.flows[i, o].rollinghorizon.T_offl_min_hs-1:
+                if (m.flows[i, o].rollinghorizon.T_int-t) >=\
+                        (m.flows[i, o].rollinghorizon.T_offl_min_hs-1):
                     m.flows[i, o].rollinghorizon.T_offl_hs[t] =\
                         m.flows[i, o].rollinghorizon.T_offl_min_hs
                 else:
-                    print(m.flows[i, o].rollinghorizon.T_int, t)
                     m.flows[i, o].rollinghorizon.T_offl_hs[t] =\
                         m.flows[i, o].rollinghorizon.T_int - t + 1
-                return (self.status[i, o, t-1]-self.status[i, o ,t])*\
+                return (self.status[i, o, t-1]-self.status[i, o, t]) *\
                     m.flows[i, o].rollinghorizon.T_offl_hs[t] <=\
                     (sum((1-self.status[i, o, h]) for h in
-                         range(t, t+m.flows[i, o].rollinghorizon.T_offl_hs[t]-1+1)))
+                         range(t, t+m.flows[i, o].rollinghorizon.T_offl_hs[t] -
+                               1+1)))
             else:
                 return Constraint.Skip
-        self.hot_start = Constraint(self.STARTUPFLOWS, m.TIMESTEPS, rule=_hot_start)
+        self.hot_start = Constraint(self.STARTUPFLOWS, m.TIMESTEPS,
+                                    rule=_hot_start)
 
         def _warm_start(block, i, o, t):
             if (t > 0) and (t <= m.flows[i, o].rollinghorizon.T_int -
@@ -1225,8 +1229,8 @@ class RollingHorizonFlow(SimpleBlock):
                 else:
                     return (m.flows[i, o].rollinghorizon.T_offl_ws[t]+1) *\
                         ((self.status[i, o, t-1]-self.status[i, o, t]) -
-                         sum(m.flows[i, o].rollinghorizon.optimized_status[h]
-                             for h in range(t, t+m.flows[i, o].rollinghorizon.T_offl_th_ws-1+1))) <=\
+                         sum(self.status[i, o, h] for h in range(t,
+                             t+m.flows[i, o].rollinghorizon.T_offl_th_ws-1+1))) <=\
                         sum((1-self.status[i, o, h]) for h in
                             range(t+m.flows[i, o].rollinghorizon.T_offl_th_ws,
                                   t+m.flows[i, o].rollinghorizon.T_offl_th_ws +
@@ -1250,14 +1254,15 @@ class RollingHorizonFlow(SimpleBlock):
                         m.flows[i, o].rollinghorizon.T_offl_th_cs
                 if m.flows[i, o].rollinghorizon.T_offl_cs[t] < 0:
                     return Constraint.Skip
-                return (m.flows[i, o].rollinghorizon.T_offl_cs[t]+1) *\
-                    ((self.status[i, o, t-1] - self.status[i, o, t]) -
-                     sum(m.flows[i, o].rollinghorizon.optimized_status[h]
-                         for h in range(t, t+m.flows[i, o].rollinghorizon.T_offl_th_cs-1+1))) <=\
-                    sum((1-self.status[i, o, h]) for h in
-                        range(t+m.flows[i, o].rollinghorizon.T_offl_th_cs,
-                              t+m.flows[i, o].rollinghorizon.T_offl_th_cs +
-                              m.flows[i, o].rollinghorizon.T_offl_cs[t]+1))
+                else:
+                    return (m.flows[i, o].rollinghorizon.T_offl_cs[t]+1) *\
+                        ((self.status[i, o, t-1] - self.status[i, o, t]) -
+                         sum(self.status[i, o, h] for h in range(t,
+                             t+m.flows[i, o].rollinghorizon.T_offl_th_cs-1+1))) <=\
+                        sum((1-self.status[i, o, h]) for h in
+                            range(t+m.flows[i, o].rollinghorizon.T_offl_th_cs,
+                                  t+m.flows[i, o].rollinghorizon.T_offl_th_cs +
+                                  m.flows[i, o].rollinghorizon.T_offl_cs[t]+1))
             else:
                 return Constraint.Skip
         self.cold_start = Constraint(self.STARTUPFLOWS, m.TIMESTEPS,
