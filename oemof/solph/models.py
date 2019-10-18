@@ -448,10 +448,27 @@ class MultiPeriodModel(BaseModel):
                         self.flow[o, i, t].setlb(
                             self.flows[o, i].min[t] *
                             self.flows[o, i].nominal_value)
-                    if self.flows[o, i].rollinghorizon:
-                        self.flows[o, i].rollinghorizon.T_int =\
-                            self.last_t_in_interval
-                        self.flows[o, i].rollinghorizon.setup_multi_period_containers()
+            if self.flows[o, i].rollinghorizon:
+                self.flows[o, i].rollinghorizon.T_int =\
+                    self.last_t_in_interval
+                self.flows[o, i].rollinghorizon.setup_multi_period_containers(
+                        len(self.multi_period_timeindex))
+                self.flows[o, i].rollinghorizon.R_down =\
+                    self.flows[o, i].rollinghorizon.ramp_limit_down *\
+                    self.flows[o, i].nominal_value *\
+                     self.flows[o, i].rollinghorizon.tau
+                self.flows[o, i].rollinghorizon.R_up =\
+                    self.flows[o, i].rollinghorizon.ramp_limit_up *\
+                    self.flows[o, i].nominal_value *\
+                     self.flows[o, i].rollinghorizon.tau
+                self.flows[o, i].rollinghorizon.R_start =\
+                    self.flows[o, i].rollinghorizon.ramp_limit_start_up *\
+                    self.flows[o, i].nominal_value *\
+                     self.flows[o, i].rollinghorizon.tau
+                self.flows[o, i].rollinghorizon.R_shutdown =\
+                    self.flows[o, i].rollinghorizon.ramp_limit_shut_down *\
+                    self.flows[o, i].nominal_value *\
+                     self.flows[o, i].rollinghorizon.tau
 
     def solve(self, solver='cbc', solver_io='lp', **kwargs):
         r""" Takes care of communication with solver to solve the model.
@@ -504,10 +521,13 @@ class MultiPeriodModel(BaseModel):
                        "with status {0} and termination condition {1}")
                 warnings.warn(msg.format(status, termination_condition),
                               UserWarning)
-            self.es.results[T-self.interval_length] = solver_results
-            self.solver_results[T-self.interval_length] = solver_results
+            self.es.results[T-self.period] = solver_results
+            self.solver_results[T-self.period] = solver_results
 
             if self.multiperiod_results is None:
+                results = self.results()
+                for key, value in results.items():
+                    pass # TODO
                 self.multiperiod_results = self.results()
             else:
                 for key, value in self.results().items():
@@ -522,10 +542,19 @@ class MultiPeriodModel(BaseModel):
                             self.flows[o, i].actual_value[t+T] *
                             self.flows[o, i].nominal_value)
                     if self.flows[o, i].rollinghorizon:
-                        self.flows[o, i].rollinghorizon.T = T
-                        self.flows[o, i].rollinghorizon.optimized_status[
-                                T-len(self.es.timeindex):T] =\
-                            list(self.RollingHorizonFlow.status[o, i, :]())
+                        self.flows[o, i].rollinghorizon.optimized_min_flow[t+T-self.period] =\
+                            self.flows[o, i].min[t+T]*self.flows[o, i].nominal_value
+                if self.flows[o, i].rollinghorizon:
+                    self.flows[o, i].rollinghorizon.T = T
+                    self.flows[o, i].rollinghorizon.optimized_status[
+                            T-len(self.es.timeindex):T] =\
+                        list(self.RollingHorizonFlow.status[o, i, :]())
+                    self.flows[o, i].rollinghorizon.optimized_flow[
+                            T-len(self.es.timeindex):T] =\
+                        list(self.flow[o, i, :]())
+#                    if 2*T + self.interval_length > len(self.multi_period_timeindex):
+#                        self.flows[o, i].rollinghorizon.T_int =\
+#                            len(self.multi_period_timeindex) - T -1
             self.es.timeindex = self.multi_period_timeindex[
                     T:T+self.interval_length]
         return solver_results

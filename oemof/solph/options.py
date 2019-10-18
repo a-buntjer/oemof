@@ -148,6 +148,8 @@ class RollingHorizon:
         sequences = ['cold_start_costs', 'warm_start_costs', 'hot_start_costs',
                      'shutdown_costs']
         defaults = {'minimum_uptime': 0, 'minimum_downtime': 1,
+                    'ramp_limit_up': 0.3, 'ramp_limit_down': 0.3,
+                    'ramp_limit_start_up': 0.2, 'ramp_limit_shut_down': 0.25,
                     't_start_cold': 3, 't_start_warm': 2, 't_start_hot': 1,
                     'tau': 1, 't_warm': 8, 't_cold': 48, 'T_int': 23, 'T': 0}
 
@@ -155,17 +157,22 @@ class RollingHorizon:
             value = kwargs.get(attribute, defaults.get(attribute))
             setattr(self, attribute,
                     sequence(value) if attribute in sequences else value)
+        self._R_up = None
+        self._R_down = None
+        self._R_start = None
+        self._R_shutdown = None
 
-    def setup_multi_period_containers(self):
-        self.optimized_status = [0 for x in range(self.T_int+1)]
-        self.optimized_flow = [0 for x in range(self.T_int+1)]
-        self.T_offl_hs = [0 for x in range(self.T_int+1)]
-        self.T_offl_ws = [0 for x in range(self.T_int+1)]
-        self.T_offl_cs = [0 for x in range(self.T_int+1)]
-        self.T_wsc = [0 for x in range(self.T_int+1)]
-        self.T_csc = [0 for x in range(self.T_int+1)]
-        self.xi_ini_ws = [0 for x in range(self.T_int+1)]
-        self.xi_ini_cs = [0 for x in range(self.T_int+1)]
+    def setup_multi_period_containers(self, total_interval_length):
+        self.optimized_status = [0 for x in range(total_interval_length)]
+        self.optimized_flow = [0 for x in range(total_interval_length)]
+        self.optimized_min_flow = [0 for x in range(total_interval_length)]
+        self.T_offl_hs = [0 for x in range(total_interval_length)]
+        self.T_offl_ws = [0 for x in range(total_interval_length)]
+        self.T_offl_cs = [0 for x in range(total_interval_length)]
+        self.T_wsc = [0 for x in range(total_interval_length)]
+        self.T_csc = [0 for x in range(total_interval_length)]
+        self.xi_ini_ws = [0 for x in range(total_interval_length)]
+        self.xi_ini_cs = [0 for x in range(total_interval_length)]
 
     @property
     def initial_status(self):
@@ -174,6 +181,22 @@ class RollingHorizon:
             return 0
         else:
             return self.optimized_status[self.T-1]
+
+    @property
+    def initial_flow(self):
+        """Compute and return the initial_status attribute."""
+        if self.optimized_flow is None:
+            return 0
+        else:
+            return self.optimized_flow[self.T-1]
+
+    @property
+    def initial_min_flow(self):
+        """Compute and return the initial_status attribute."""
+        if self.optimized_min_flow is None:
+            raise ValueError("No initial min flow in fist period!")
+        else:
+            return self.optimized_min_flow[self.T-1]
 
     @property
     def T_offl_min_hs(self):
@@ -211,6 +234,50 @@ class RollingHorizon:
         """Compute and return the _T_offl_min_hs attribute."""
         self._T_up_min = (self.minimum_uptime)/self.tau
         return self._T_up_min
+
+    @property
+    def R_up(self):
+        """Compute and return the _T_offl_min_hs attribute."""
+        return self._R_up
+
+    @property
+    def R_down(self):
+        """Compute and return the _T_offl_min_hs attribute."""
+        return self._R_down
+
+    @property
+    def R_start(self):
+        """Compute and return the _T_offl_min_hs attribute."""
+        return self._R_start
+
+    @property
+    def R_shutdown(self):
+        """Compute and return the _T_offl_min_hs attribute."""
+        return self._R_shutdown
+
+    @R_up.setter
+    def R_up(self, value):
+        """Compute and return the _T_offl_min_hs attribute."""
+        self._R_up = value
+        return self._R_up
+
+    @R_down.setter
+    def R_down(self, value):
+        """Compute and return the _T_offl_min_hs attribute."""
+        self._R_down = value
+        return self._R_down
+
+    @R_start.setter
+    def R_start(self, value):
+        """Compute and return the _T_offl_min_hs attribute."""
+        self._R_start = value
+        return self._R_start
+
+    @R_shutdown.setter
+    def R_shutdown(self, value):
+        """Compute and return the _T_offl_min_hs attribute."""
+        self._R_shutdown = value
+        return self._R_shutdown
 
     def _calculate_helper_variables(self):
         """

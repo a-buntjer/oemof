@@ -1099,12 +1099,12 @@ class RollingHorizonFlow(SimpleBlock):
 #        self.MINDOWNTIMEFLOWS = Set(initialize=[(g[0], g[1]) for g in group
 #                                    if g[2].rollinghorizon.minimum_downtime
 #                                    is not None])
-#        self.RAMPUPFLOWS = Set(initialize=[(g[0], g[1]) for g in group
-#                               if g[2].rollinghorizon.ramp_limit_up
-#                               is not None])
-#        self.RAMPDOWNFLOWS = Set(initialize=[(g[0], g[1]) for g in group
-#                                 if g[2].rollinghorizon.ramp_limit_down
-#                                 is not None])
+        self.RAMPUPFLOWS = Set(initialize=[(g[0], g[1]) for g in group
+                               if g[2].rollinghorizon.ramp_limit_up
+                               is not None])
+        self.RAMPDOWNFLOWS = Set(initialize=[(g[0], g[1]) for g in group
+                                 if g[2].rollinghorizon.ramp_limit_down
+                                 is not None])
 #        self.RAMPSTARTFLOWS = Set(initialize=[(g[0], g[1]) for g in group
 #                                  if g[2].rollinghorizon.ramp_limit_start_up
 #                                  is not None])
@@ -1177,7 +1177,9 @@ class RollingHorizonFlow(SimpleBlock):
         self.initial_warm_start = Constraint(self.STARTUPFLOWS, rule=_initial_warm_start)
 
         def _initial_cold_start(block, i, o):
-            if (m.flows[i, o].rollinghorizon.T == 0) or (m.flows[i, o].rollinghorizon.helper_variables['Z_ini_cs'] == 0) or (m.flows[i, o].rollinghorizon.helper_variables['T_offl_possible_cs'] < 0):
+            if (m.flows[i, o].rollinghorizon.T == 0) or\
+                    (m.flows[i, o].rollinghorizon.helper_variables['Z_ini_cs'] == 0) or\
+                    (m.flows[i, o].rollinghorizon.helper_variables['T_offl_possible_cs'] < 0):
                 return Constraint.Skip
             else:
                 return ((m.flows[i, o].rollinghorizon.helper_variables['T_offl_possible_cs']+1) *
@@ -1328,51 +1330,48 @@ class RollingHorizonFlow(SimpleBlock):
         self.cold_start_costs = Constraint(self.STARTUPFLOWS, m.TIMESTEPS,
                                            rule=_cold_start_costs)
 
-#        def _ramp_down(block, i, o, t):
-#            if (m.flows[i, o].rollinghorizon.T == 0) & (t == 0):
-#                return Constraint.Skip
-#            if t == 0:
-#                return (m.flows[i, o].rollinghorizon.optimized_flow[m.flows[i, o].rollinghorizon.T-1])-(
-#                    m.flow[i, o, t-1]+self.status[i, o ,t]*\
-#            m.flows[i, o].rollinghorizon.flow_min_last)\
-#                        <= (m.flows[i, o].rollinghorizon.ramp_limit_down*self.tau*
-#                            self.status[i, o ,t]+(
-#                                    m.flows[i, o].rollinghorizon.flow_min_last+
-#                                    0.5*m.flows[i, o].rollinghorizon.ramp_limit_down*
-#                                    self.tau)*(1-self.status[i, o ,t]))
-#            else:
-#                return (m.flow[i, o, t-1]+self.status[i, o, t-1]*\
-#            self.th_power_plants[u].p_nom*self.th_power_plants[u].p_min_pu[t-1+m.flows[i, o].rollinghorizon.T-1])-(
-#                    m.flow[i, o, t-1]+self.status[i, o ,t]*\
-#            m.flows[i, o].rollinghorizon.flow_min_last)\
-#                        <= (m.flows[i, o].rollinghorizon.ramp_limit_down*self.tau*
-#                            self.status[i, o ,t]+(
-#                                    m.flows[i, o].rollinghorizon.flow_min_last+
-#                                    0.5*m.flows[i, o].rollinghorizon.ramp_limit_down*
-#                                    self.tau)*(1-self.status[i, o ,t]))
-#        self.ramp_down = Constraint(self.RAMPDOWNFLOWS, m.TIMESTEPS, rule=_ramp_down)
-#
-#        def _ramp_up(block, i, o, t):
-#            if (m.flows[i, o].rollinghorizon.T == 0) & (t == 0):
-#                    return Constraint.Skip
-#            if t == 0:
-#                return (m.flow[i, o, t-1]+self.status[i, o ,t]*\
-#            m.flows[i, o].rollinghorizon.flow_min_last)-(m.flows[i, o].rollinghorizon.optimized_flow[m.flows[i, o].rollinghorizon.T-1])\
-#                        <= (m.flows[i, o].rollinghorizon.ramp_limit_up*self.tau*
-#                            m.flows[i, o].rollinghorizon.initial_status+(
-#                                    self.th_power_plants[u].p_nom*self.th_power_plants[u].p_min_pu[m.flows[i, o].rollinghorizon.T-1]+
-#                                    0.5*m.flows[i, o].rollinghorizon.ramp_limit_up*
-#                                    self.tau)*(1-m.flows[i, o].rollinghorizon.initial_status))
-#            else:
-#                return (m.flow[i, o, t-1]+self.status[i, o ,t]*\
-#            m.flows[i, o].rollinghorizon.flow_min_last)-(m.flow[i, o, t-1]+self.status[i, o, t-1]*\
-#            self.th_power_plants[u].p_nom*self.th_power_plants[u].p_min_pu[t-1+m.flows[i, o].rollinghorizon.T-1])\
-#                        <= (m.flows[i, o].rollinghorizon.ramp_limit_up*self.tau*
-#                            self.status[i, o, t-1]+(
-#                                    self.th_power_plants[u].p_nom*self.th_power_plants[u].p_min_pu[t-1+m.flows[i, o].rollinghorizon.T-1]+
-#                                    0.5*m.flows[i, o].rollinghorizon.ramp_limit_up*
-#                                    self.tau)*(1-self.status[i, o, t-1]))
-#        self.ramp_up = Constraint(self.RAMPUPFLOWS, m.TIMESTEPS, rule=_ramp_up)
+        def _ramp_down(block, i, o, t):
+            if (m.flows[i, o].rollinghorizon.T == 0) & (t == 0):
+                return Constraint.Skip
+            elif t == 0:
+                return (m.flows[i, o].rollinghorizon.initial_flow -
+                        m.flow[i, o, t]) <=\
+                        (m.flows[i, o].rollinghorizon.R_down *
+                         self.status[i, o, t] +
+                         (m.flows[i, o].min[t]*m.flows[i, o].nominal_value +
+                          0.5*m.flows[i, o].rollinghorizon.R_down) *
+                         (1-self.status[i, o, t]))
+            else:
+                return (m.flow[i, o, t-1] -
+                        m.flow[i, o, t]) <=\
+                        (m.flows[i, o].rollinghorizon.R_down *
+                         self.status[i, o, t] +
+                         (m.flows[i, o].min[t]*m.flows[i, o].nominal_value +
+                          0.5*m.flows[i, o].rollinghorizon.R_down) *
+                         (1-self.status[i, o, t]))
+        self.ramp_down = Constraint(self.RAMPDOWNFLOWS, m.TIMESTEPS,
+                                    rule=_ramp_down)
+
+        def _ramp_up(block, i, o, t):
+            if (m.flows[i, o].rollinghorizon.T == 0) & (t == 0):
+                return Constraint.Skip
+            elif t == 0:
+                return (m.flow[i, o, t] -
+                        m.flows[i, o].rollinghorizon.initial_flow) <=\
+                        (m.flows[i, o].rollinghorizon.R_up *
+                         m.flows[i, o].rollinghorizon.initial_status +
+                         (m.flows[i, o].rollinghorizon.initial_min_flow +
+                          0.5*m.flows[i, o].rollinghorizon.R_up) *
+                         (1-m.flows[i, o].rollinghorizon.initial_status))
+            else:
+                return (m.flow[i, o, t] -
+                        m.flow[i, o, t-1]) <=\
+                        (m.flows[i, o].rollinghorizon.R_up *
+                         self.status[i, o, t-1] +
+                         (m.flows[i, o].min[t-1]*m.flows[i, o].nominal_value +
+                          0.5*m.flows[i, o].rollinghorizon.R_up) *
+                         (1-self.status[i, o, t-1]))
+        self.ramp_up = Constraint(self.RAMPUPFLOWS, m.TIMESTEPS, rule=_ramp_up)
 
     def _objective_expression(self):
         r"""Objective expression for rollinghorizon flows.
@@ -1395,5 +1394,4 @@ class RollingHorizonFlow(SimpleBlock):
                                          m.TIMESTEPS)
 
             self.startup_costs = Expression(expr=startup_costs)
-
         return startup_costs + shutdown_costs + activity_costs
