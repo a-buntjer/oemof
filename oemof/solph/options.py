@@ -148,10 +148,10 @@ class RollingHorizon:
         sequences = ['cold_start_costs', 'warm_start_costs', 'hot_start_costs',
                      'shutdown_costs']
         defaults = {'minimum_uptime': 0, 'minimum_downtime': 1,
-                    'ramp_limit_up': 0.3, 'ramp_limit_down': 0.3,
-                    'ramp_limit_start_up': 0.2, 'ramp_limit_shut_down': 0.25,
                     't_start_cold': 3, 't_start_warm': 2, 't_start_hot': 1,
-                    'tau': 1, 't_warm': 8, 't_cold': 48, 'T_int': 23, 'T': 0}
+                    'tau': 1, 't_warm': 8, 't_cold': 48, 'T_int': 23, 'T': 0,
+                    'cold_start_costs': 3, 'warm_start_costs': 2,
+                    'hot_start_costs': 1}
 
         for attribute in set(scalars + sequences + list(kwargs)):
             value = kwargs.get(attribute, defaults.get(attribute))

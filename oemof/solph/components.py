@@ -1196,7 +1196,7 @@ class ExtractionTurbineCHPBlock(SimpleBlock):
                  {\eta_{th,maxExtr}(t)}
 
     where :math:`\beta` is defined as:
-    
+
          .. math::
             \beta(t) = \frac{\eta_{el,woExtr}(t) - \eta_{el,maxExtr}(t)}{\eta_{th,maxExtr}(t)}
 
@@ -1352,9 +1352,10 @@ class OffsetTransformer(network.Transformer):
 
         if len(self.inputs) == 1:
             for k, v in self.inputs.items():
-                if not v.nonconvex:
+                if not v.nonconvex or not v.rollinghorizon:
                     raise TypeError(
-                        'Input flows must be of type NonConvexFlow!')
+                        'Input flows must be of type NonConvexFlow or of'
+                        ' type RollingHorizonFlow!')
 
         if len(self.inputs) > 1 or len(self.outputs) > 1:
             raise ValueError("Component `OffsetTransformer` must not have " +
@@ -1423,8 +1424,12 @@ class OffsetTransformerBlock(SimpleBlock):
             expr += - m.flow[n, list(n.outputs.keys())[0], t]
             expr += (m.flow[list(n.inputs.keys())[0], n, t] *
                      n.coefficients[1][t])
-            expr += (m.NonConvexFlow.status[list(n.inputs.keys())[0], n, t] *
-                     n.coefficients[0][t])
+            if m.NonConvexFlow is None:
+                expr += (m.RollingHorizonFlow.status[
+                        list(n.inputs.keys())[0], n, t] * n.coefficients[0][t])
+            else:
+                expr += (m.NonConvexFlow.status[
+                        list(n.inputs.keys())[0], n, t] * n.coefficients[0][t])
             return expr == 0
 
         self.relation = Constraint(self.OFFSETTRANSFORMERS, m.TIMESTEPS,

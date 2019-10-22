@@ -1105,13 +1105,6 @@ class RollingHorizonFlow(SimpleBlock):
         self.RAMPDOWNFLOWS = Set(initialize=[(g[0], g[1]) for g in group
                                  if g[2].rollinghorizon.ramp_limit_down
                                  is not None])
-#        self.RAMPSTARTFLOWS = Set(initialize=[(g[0], g[1]) for g in group
-#                                  if g[2].rollinghorizon.ramp_limit_start_up
-#                                  is not None])
-#        self.RAMPSHUTDOWNFLOWS =\
-#            Set(initialize=[(g[0], g[1]) for g in group
-#                            if g[2].rollinghorizon.ramp_limit_shut_down
-#                            is not None])
 
         # ################### VARIABLES AND CONSTRAINTS #######################
         self.status = Var(self.ROLLINGHORIZON_FLOWS, m.TIMESTEPS,

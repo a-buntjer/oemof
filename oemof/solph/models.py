@@ -325,8 +325,8 @@ class Model(BaseModel):
 
 
 class MultiPeriodModel(BaseModel):
-    """ An  energy system model for operational and investment
-    optimization.
+    """ An  multi period energy system model for operational and investment
+    optimization with a rolling horizon.
 
     Parameters
     ----------
@@ -369,7 +369,6 @@ class MultiPeriodModel(BaseModel):
         energysystem.timeindex =\
             self.multi_period_timeindex[:self.interval_length]
         super().__init__(energysystem, **kwargs)
-
 
     @property
     def last_t_in_interval(self):
@@ -453,22 +452,31 @@ class MultiPeriodModel(BaseModel):
                     self.last_t_in_interval
                 self.flows[o, i].rollinghorizon.setup_multi_period_containers(
                         len(self.multi_period_timeindex))
-                self.flows[o, i].rollinghorizon.R_down =\
-                    self.flows[o, i].rollinghorizon.ramp_limit_down *\
-                    self.flows[o, i].nominal_value *\
-                     self.flows[o, i].rollinghorizon.tau
-                self.flows[o, i].rollinghorizon.R_up =\
-                    self.flows[o, i].rollinghorizon.ramp_limit_up *\
-                    self.flows[o, i].nominal_value *\
-                     self.flows[o, i].rollinghorizon.tau
-                self.flows[o, i].rollinghorizon.R_start =\
-                    self.flows[o, i].rollinghorizon.ramp_limit_start_up *\
-                    self.flows[o, i].nominal_value *\
-                     self.flows[o, i].rollinghorizon.tau
-                self.flows[o, i].rollinghorizon.R_shutdown =\
-                    self.flows[o, i].rollinghorizon.ramp_limit_shut_down *\
-                    self.flows[o, i].nominal_value *\
-                     self.flows[o, i].rollinghorizon.tau
+                if self.flows[o, i].nominal_value is not None:
+                    if self.flows[o, i].rollinghorizon.ramp_limit_down\
+                            is not None:
+                        self.flows[o, i].rollinghorizon.R_down =\
+                            self.flows[o, i].rollinghorizon.ramp_limit_down *\
+                            self.flows[o, i].nominal_value *\
+                            self.flows[o, i].rollinghorizon.tau
+                    if self.flows[o, i].rollinghorizon.ramp_limit_up\
+                            is not None:
+                        self.flows[o, i].rollinghorizon.R_up =\
+                            self.flows[o, i].rollinghorizon.ramp_limit_up *\
+                            self.flows[o, i].nominal_value *\
+                            self.flows[o, i].rollinghorizon.tau
+                    if self.flows[o, i].rollinghorizon.ramp_limit_start_up\
+                            is not None:
+                        self.flows[o, i].rollinghorizon.R_start =\
+                            self.flows[o, i].rollinghorizon.ramp_limit_start_up *\
+                            self.flows[o, i].nominal_value *\
+                            self.flows[o, i].rollinghorizon.tau
+                    if self.flows[o, i].rollinghorizon.ramp_limit_shut_down\
+                            is not None:
+                        self.flows[o, i].rollinghorizon.R_shutdown =\
+                            self.flows[o, i].rollinghorizon.ramp_limit_shut_down *\
+                            self.flows[o, i].nominal_value *\
+                            self.flows[o, i].rollinghorizon.tau
 
     def solve(self, solver='cbc', solver_io='lp', **kwargs):
         r""" Takes care of communication with solver to solve the model.
@@ -503,7 +511,6 @@ class MultiPeriodModel(BaseModel):
         options = opt.options
         for k in solver_cmdline_options:
             options[k] = solver_cmdline_options[k]
-        print(self.total_optimization_period)
         self.es.results = {}
         self.solver_results = {}
         for T in self.total_optimization_period:
@@ -525,15 +532,12 @@ class MultiPeriodModel(BaseModel):
             self.solver_results[T-self.period] = solver_results
 
             if self.multiperiod_results is None:
-                results = self.results()
-                for key, value in results.items():
-                    pass # TODO
                 self.multiperiod_results = self.results()
             else:
                 for key, value in self.results().items():
                     for key2, value2 in value.items():
                         self.multiperiod_results[key][key2] =\
-                            self.multiperiod_results[key][key2].append(
+                            self.multiperiod_results[key][key2].combine_first(
                                     value2)
             for (o, i) in self.FLOWS:
                 for t in self.TIMESTEPS:
@@ -541,9 +545,11 @@ class MultiPeriodModel(BaseModel):
                         self.flow[o, i, t].value = (
                             self.flows[o, i].actual_value[t+T] *
                             self.flows[o, i].nominal_value)
-                    if self.flows[o, i].rollinghorizon:
-                        self.flows[o, i].rollinghorizon.optimized_min_flow[t+T-self.period] =\
-                            self.flows[o, i].min[t+T]*self.flows[o, i].nominal_value
+                    if self.flows[o, i].rollinghorizon and\
+                            self.flows[o, i].nominal_value is not None:
+                        self.flows[o, i].rollinghorizon.optimized_min_flow[
+                                t+T-self.period] = self.flows[o, i].min[t+T] *\
+                                self.flows[o, i].nominal_value
                 if self.flows[o, i].rollinghorizon:
                     self.flows[o, i].rollinghorizon.T = T
                     self.flows[o, i].rollinghorizon.optimized_status[
@@ -552,9 +558,17 @@ class MultiPeriodModel(BaseModel):
                     self.flows[o, i].rollinghorizon.optimized_flow[
                             T-len(self.es.timeindex):T] =\
                         list(self.flow[o, i, :]())
-#                    if 2*T + self.interval_length > len(self.multi_period_timeindex):
-#                        self.flows[o, i].rollinghorizon.T_int =\
-#                            len(self.multi_period_timeindex) - T -1
+            if hasattr(self, 'GenericStorageBlock'):
+                for n in self.GenericStorageBlock.STORAGES:
+                    self.GenericStorageBlock.init_cap[n].value =\
+                        self.GenericStorageBlock.capacity[
+                                n, self.TIMESTEPS[-1]].value
+            if T + self.interval_length > len(self.total_optimization_period):
+                for (o, i) in self.FLOWS:
+                    if self.flows[o, i].rollinghorizon:
+                        self.flows[o, i].rollinghorizon.T_int =\
+                            self.period
+
             self.es.timeindex = self.multi_period_timeindex[
                     T:T+self.interval_length]
         return solver_results
