@@ -1352,7 +1352,8 @@ class OffsetTransformer(network.Transformer):
 
         if len(self.inputs) == 1:
             for k, v in self.inputs.items():
-                if not v.nonconvex or not v.rollinghorizon:
+                if not v.nonconvex and not v.rollinghorizon:
+                    print(v.rollinghorizon)
                     raise TypeError(
                         'Input flows must be of type NonConvexFlow or of'
                         ' type RollingHorizonFlow!')
@@ -1424,10 +1425,10 @@ class OffsetTransformerBlock(SimpleBlock):
             expr += - m.flow[n, list(n.outputs.keys())[0], t]
             expr += (m.flow[list(n.inputs.keys())[0], n, t] *
                      n.coefficients[1][t])
-            if m.NonConvexFlow is None:
+            if hasattr(m.RollingHorizonFlow, 'status'):
                 expr += (m.RollingHorizonFlow.status[
                         list(n.inputs.keys())[0], n, t] * n.coefficients[0][t])
-            else:
+            if hasattr(m.NonConvexFlow, 'status'):
                 expr += (m.NonConvexFlow.status[
                         list(n.inputs.keys())[0], n, t] * n.coefficients[0][t])
             return expr == 0

@@ -528,6 +528,7 @@ class MultiPeriodModel(BaseModel):
                        "with status {0} and termination condition {1}")
                 warnings.warn(msg.format(status, termination_condition),
                               UserWarning)
+                raise SystemExit('Found no solution program ended!')
             self.es.results[T-self.period] = solver_results
             self.solver_results[T-self.period] = solver_results
 
@@ -567,7 +568,7 @@ class MultiPeriodModel(BaseModel):
                 for (o, i) in self.FLOWS:
                     if self.flows[o, i].rollinghorizon:
                         self.flows[o, i].rollinghorizon.T_int =\
-                            self.period
+                            self.period - 1
 
             self.es.timeindex = self.multi_period_timeindex[
                     T:T+self.interval_length]
