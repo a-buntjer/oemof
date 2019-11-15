@@ -179,11 +179,6 @@ class Flow(on.Edge):
                 setattr(self, attribute,
                         sequence(value) if attribute in sequences else value)
 
-        def update_actual_values(self):
-            if self.fixed:
-                self.actual_value[:T] = self.actual_value[T:T+period]
-
-
         # Checking for impossible attribute combinations
         if self.fixed and self.actual_value[0] is None:
             raise ValueError("Cannot fix flow value to None.\n Please "

@@ -77,7 +77,6 @@ def create_dataframe(om):
     # write them into a dict with tuples as keys
     var_dict = {(str(bv).split('.')[0], str(bv).split('.')[-1], i): bv[i].value
                 for bv in block_vars for i in getattr(bv, '_index')}
-
     # use this to create a pandas dataframe
     df = pd.DataFrame(list(var_dict.items()), columns=['pyomo_tuple', 'value'])
     df['variable_name'] = df['pyomo_tuple'].str[1]
@@ -109,7 +108,6 @@ def results(om):
     and flows e.g. `results[n, n]['sequences']`.
     """
     df = create_dataframe(om)
-
     # create a dict of dataframes keyed by oemof tuples
     df_dict = {k if len(k) > 1 else (k[0], None):
                v[['timestep', 'variable_name', 'value']]

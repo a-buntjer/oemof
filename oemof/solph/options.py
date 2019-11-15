@@ -144,14 +144,15 @@ class RollingHorizon:
                    't_start_warm', 't_start_hot', 'maximum_startups',
                    'maximum_shutdowns', 'ramp_limit_up', 'ramp_limit_down',
                    'ramp_limit_start_up', 'ramp_limit_shut_down', 'tau',
-                   't_warm', 't_cold', 'T_int', 'flow_min_last', 'T']
+                   't_warm', 't_cold', 't_last', 'flow_min_last', 't_first',
+                   'initial_min_flow']
         sequences = ['cold_start_costs', 'warm_start_costs', 'hot_start_costs',
                      'shutdown_costs']
         defaults = {'minimum_uptime': 0, 'minimum_downtime': 1,
                     't_start_cold': 3, 't_start_warm': 2, 't_start_hot': 1,
-                    'tau': 1, 't_warm': 8, 't_cold': 48, 'T_int': 23, 'T': 0,
-                    'cold_start_costs': 3, 'warm_start_costs': 2,
-                    'hot_start_costs': 1}
+                    'tau': 1, 't_warm': 8, 't_cold': 48, 't_last': 47,
+                    't_first': 0, 'cold_start_costs': 3, 'warm_start_costs': 2,
+                    'hot_start_costs': 1, 'initial_min_flow': 0}
 
         for attribute in set(scalars + sequences + list(kwargs)):
             value = kwargs.get(attribute, defaults.get(attribute))
@@ -165,7 +166,6 @@ class RollingHorizon:
     def setup_multi_period_containers(self, total_interval_length):
         self.optimized_status = [0 for x in range(total_interval_length)]
         self.optimized_flow = [0 for x in range(total_interval_length)]
-        self.optimized_min_flow = [0 for x in range(total_interval_length)]
         self.T_offl_hs = [0 for x in range(total_interval_length)]
         self.T_offl_ws = [0 for x in range(total_interval_length)]
         self.T_offl_cs = [0 for x in range(total_interval_length)]
@@ -180,7 +180,7 @@ class RollingHorizon:
         if self.optimized_status is None:
             return 0
         else:
-            return self.optimized_status[self.T-1]
+            return self.optimized_status[self.t_first-1]
 
     @property
     def initial_flow(self):
@@ -188,15 +188,7 @@ class RollingHorizon:
         if self.optimized_flow is None:
             return 0
         else:
-            return self.optimized_flow[self.T-1]
-
-    @property
-    def initial_min_flow(self):
-        """Compute and return the initial_status attribute."""
-        if self.optimized_min_flow is None:
-            raise ValueError("No initial min flow in fist period!")
-        else:
-            return self.optimized_min_flow[self.T-1]
+            return self.optimized_flow[self.t_first-1]
 
     @property
     def T_offl_min_hs(self):
@@ -289,9 +281,9 @@ class RollingHorizon:
         helper_variables = {'sum_start_ini': 0, 'T_ini': 0, 'Z_ini_ws': 0,
                             'Z_ini_cs': 0, 'T_offl_possible_ws': 0,
                             'T_offl_possible_cs': 0}
-        if self.T > 0:
-            last_state = self.optimized_status[self.T-1]
-            for status in reversed(self.optimized_status[:self.T]):
+        if self.t_first > 0:
+            last_state = self.optimized_status[self.t_first-1]
+            for status in reversed(self.optimized_status[:self.t_first]):
                 if (status == last_state):
                     helper_variables['sum_start_ini'] += 1
                     last_state = status
@@ -302,27 +294,27 @@ class RollingHorizon:
                     (helper_variables['sum_start_ini'] <
                      self.T_offl_min_hs):
                 helper_variables['T_ini'] =\
-                    min(self.T_int, self.T_offl_min_hs -
+                    min(self.t_last, self.T_offl_min_hs -
                         helper_variables['sum_start_ini'])
             elif (self.initial_status == 0) and\
                     (self.T_offl_min_ws >
                      helper_variables['sum_start_ini']) and\
                     (helper_variables['sum_start_ini'] >= self.T_offl_th_ws):
                 helper_variables['T_ini'] =\
-                    min(self.T_int, self.T_offl_min_ws -
+                    min(self.t_last, self.T_offl_min_ws -
                         helper_variables['sum_start_ini'])
             elif (self.initial_status == 0) and\
                     (self.T_offl_min_cs >
                      helper_variables['sum_start_ini']) and\
                     (helper_variables['sum_start_ini'] >= self.T_offl_th_cs):
                 helper_variables['T_ini'] =\
-                    min(self.T_int, self.T_offl_min_cs -
+                    min(self.t_last, self.T_offl_min_cs -
                         helper_variables['sum_start_ini'])
             elif (self.initial_status == 1) and\
                     (helper_variables['sum_start_ini'] <
                      self.T_up_min):
                 helper_variables['T_ini'] =\
-                    min(self.T_int, self.T_up_min -
+                    min(self.t_last, self.T_up_min -
                         helper_variables['sum_start_ini'])
             else:
                 0
@@ -330,7 +322,7 @@ class RollingHorizon:
             if (self.initial_status == 0) and\
                     (helper_variables['sum_start_ini'] <
                      self.T_offl_th_ws) and\
-                    (self.T_int > self.T_offl_th_ws -
+                    (self.t_last > self.T_offl_th_ws -
                      helper_variables['sum_start_ini']):
                 helper_variables['Z_ini_ws'] = 1
             else:
@@ -339,30 +331,30 @@ class RollingHorizon:
             if (self.initial_status == 0) and\
                     (helper_variables['sum_start_ini'] <
                      self.T_offl_th_cs) and\
-                    (self.T_int > self.T_offl_th_cs -
+                    (self.t_last > self.T_offl_th_cs -
                      helper_variables['sum_start_ini']):
                 helper_variables['Z_ini_cs'] = 1
             else:
                 helper_variables['Z_ini_cs'] = 0
             # T offl possible warm start
-            if self.T_int >= self.T_offl_min_ws -\
+            if self.t_last >= self.T_offl_min_ws -\
                     helper_variables['sum_start_ini']:
                 helper_variables['T_offl_possible_ws'] =\
                     self.T_offl_min_ws -\
                     self.T_offl_th_ws-1
             else:
                 helper_variables['T_offl_possible_ws'] =\
-                    self.T_int-1-self.T_offl_min_ws +\
+                    self.t_last-1-self.T_offl_min_ws +\
                     helper_variables['sum_start_ini']
             # T offl possible cold start
-            if self.T_int >= self.T_offl_min_cs -\
+            if self.t_last >= self.T_offl_min_cs -\
                     helper_variables['sum_start_ini']:
                 helper_variables['T_offl_possible_cs'] =\
                     self.T_offl_min_cs -\
                     self.T_offl_th_cs-1
             else:
                 helper_variables['T_offl_possible_cs'] =\
-                    self.T_int-1-self.T_offl_min_cs +\
+                    self.t_last-1-self.T_offl_min_cs +\
                     helper_variables['sum_start_ini']
         self._helper_variables = helper_variables
 
