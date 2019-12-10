@@ -1422,15 +1422,9 @@ class OffsetTransformerBlock(SimpleBlock):
         def _relation_rule(block, n, t):
             """Link binary input and output flow to component outflow."""
             expr = 0
-            expr +=  - m.flow[n, list(n.outputs.keys())[0], t]
+            expr += - m.flow[n, list(n.outputs.keys())[0], t]
             expr += (m.flow[list(n.inputs.keys())[0], n, t] *
                      n.coefficients[1][t])
-#            if hasattr(m.RollingHorizonFlow, 'status'):
-#                expr += (m.RollingHorizonFlow.status[
-#                        list(n.inputs.keys())[0], n, t] * n.coefficients[0][t])
-#            elif hasattr(m.NonConvexFlow, 'status'):
-#                expr += (m.NonConvexFlow.status[
-#                        list(n.inputs.keys())[0], n, t] * n.coefficients[0][t])
             expr += (m.NonConvexFlow.status[list(n.inputs.keys())[0], n, t] *
                      n.coefficients[0][t])
             return expr == 0
