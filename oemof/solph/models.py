@@ -584,5 +584,5 @@ class MultiPeriodModel(BaseModel):
                 for n in self.GenericStorageBlock.STORAGES:
                     self.GenericStorageBlock.init_cap[n].value =\
                         self.GenericStorageBlock.capacity[
-                                n, self.period-1].value
+                                n, t_first+self.period-1].value
         return solver_results
