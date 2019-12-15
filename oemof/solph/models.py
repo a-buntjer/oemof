@@ -523,8 +523,11 @@ class MultiPeriodModel(BaseModel):
                 # Set values for new loop
                 for t in self.TIMESTEPS:
                     if (self.flows[o, i].variable_costs[t] is not None):
-                        self.flows[o, i].variable_costs[t] =\
+                       try:
+                            self.flows[o, i].variable_costs[t] =\
                                 self.flows[o, i].variable_costs[t_first+t]
+                        except IndexError:
+                            pass
                     if (self.flows[o, i].actual_value[t] is not None):
                         self.flow[o, i, t].value = (
                             self.flows[o, i].actual_value[
