@@ -519,34 +519,7 @@ class MultiPeriodModel(BaseModel):
             if t_first + self.interval_length >\
                     len(self.multi_period_timeindex):
                 break
-            for (o, i) in self.FLOWS:
-                # Set values for new loop
-                for t in self.TIMESTEPS:
-                    if (self.flows[o, i].variable_costs[t] is not None):
-                       try:
-                            self.flows[o, i].variable_costs[t] =\
-                                self.flows[o, i].variable_costs[t_first+t]
-                        except IndexError:
-                            pass
-                    if (self.flows[o, i].actual_value[t] is not None):
-                        self.flow[o, i, t].value = (
-                            self.flows[o, i].actual_value[
-                                    t_first+t] *
-                            self.flows[o, i].nominal_value)
-                    if self.flows[o, i].rollinghorizon:
-                        self.flows[o, i].rollinghorizon.cold_start_costs[t] =\
-                            self.flows[o, i].rollinghorizon.cold_start_costs[
-                                t_first+t]
-                        self.flows[o, i].rollinghorizon.warm_start_costs =\
-                            self.flows[o, i].rollinghorizon.warm_start_costs[
-                                t_first+t]
-                        self.flows[o, i].rollinghorizon.hot_start_costs =\
-                            self.flows[o, i].rollinghorizon.hot_start_costs[
-                                t_first+t]
-                    self._add_objective(update=True)
 
-                if self.flows[o, i].rollinghorizon:
-                    self.flows[o, i].rollinghorizon.t_first = t_first
             solver_results = opt.solve(self, **solve_kwargs)
 
             status = solver_results["Solver"][0]["Status"].key
@@ -571,24 +544,51 @@ class MultiPeriodModel(BaseModel):
                 for key, value in actual_loop_results.items():
                     for key2, value2 in value.items():
                         self.multiperiod_results[key][key2] =\
-                            value2.combine_first(self.multiperiod_results[key][key2])
-                            # self.multiperiod_results[key][key2].combine_first(
-                            #         value2)
+                            value2.combine_first(
+                                self.multiperiod_results[key][key2])
             # Set result values for next loop
+            t_first_next = t_first + self.period
             for (o, i) in self.FLOWS:
-                # Set results
-                if self.flows[o, i].rollinghorizon and\
-                        self.flows[o, i].nominal_value is not None:
-                    self.flows[o, i].rollinghorizon.initial_min_flow =\
+                # Set values for new loop
+                if self.flows[o, i].rollinghorizon:
+                    self.flows[o, i].rollinghorizon.t_first = t_first_next
+
+                for t in self.TIMESTEPS:
+                    if (self.flows[o, i].variable_costs[t] is not None):
+                        try:
+                            self.flows[o, i].variable_costs[t] =\
+                                self.flows[o, i].variable_costs[t_first_next+t]
+                        except IndexError:
+                            pass
+                    if (self.flows[o, i].actual_value[t] is not None):
+                        self.flow[o, i, t].value = (
+                            self.flows[o, i].actual_value[
+                                    t_first_next+t] *
+                            self.flows[o, i].nominal_value)
+                    if self.flows[o, i].rollinghorizon:
+                        self.flows[o, i].rollinghorizon.cold_start_costs[t] =\
+                            self.flows[o, i].rollinghorizon.cold_start_costs[
+                                t_first_next+t]
+                        self.flows[o, i].rollinghorizon.warm_start_costs =\
+                            self.flows[o, i].rollinghorizon.warm_start_costs[
+                                t_first_next+t]
+                        self.flows[o, i].rollinghorizon.hot_start_costs =\
+                            self.flows[o, i].rollinghorizon.hot_start_costs[
+                                t_first_next+t]
+                    # Set values for new loop based on old timestep
+                    if self.flows[o, i].rollinghorizon and\
+                            self.flows[o, i].nominal_value is not None:
+                        self.flows[o, i].rollinghorizon.initial_min_flow =\
                             self.flows[o, i].min[t_first+self.period-1] *\
                             self.flows[o, i].nominal_value
-                if self.flows[o, i].rollinghorizon:
-                    self.flows[o, i].rollinghorizon.optimized_status[
-                            t_first:t_first+self.interval_length] =\
-                        list(self.RollingHorizonFlow.status[o, i, :]())
-                    self.flows[o, i].rollinghorizon.optimized_flow[
-                            t_first:t_first+self.interval_length] =\
-                        list(self.flow[o, i, :]())
+                    if self.flows[o, i].rollinghorizon:
+                        self.flows[o, i].rollinghorizon.optimized_status[
+                                t_first:t_first+self.interval_length] =\
+                            list(self.RollingHorizonFlow.status[o, i, :]())
+                        self.flows[o, i].rollinghorizon.optimized_flow[
+                                t_first:t_first+self.interval_length] =\
+                            list(self.flow[o, i, :]())
+            self._add_objective(update=True)
             if hasattr(self, 'GenericStorageBlock'):
                 for n in self.GenericStorageBlock.STORAGES:
                     self.GenericStorageBlock.init_cap[n].fix(
