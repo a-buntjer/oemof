@@ -546,7 +546,7 @@ class MultiPeriodModel(BaseModel):
             # Set result values for next loop
             t_first_next = t_first + self.period
             if t_first_next + self.TIMESTEPS[-1] >\
-                    self.total_optimization_period[-1]:
+                    (len(self.multi_period_timeindex)):
                 break
             for (o, i) in self.FLOWS:
                 # Set values for new loop
