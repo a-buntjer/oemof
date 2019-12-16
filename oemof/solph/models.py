@@ -383,9 +383,9 @@ class MultiPeriodModel(BaseModel):
 
     @property
     def total_optimization_period(self):
-        _total_optimization_period = [x for x in range(0,
-                                      len(self.multi_period_timeindex),
-                                      self.period)]
+        _total_optimization_period = [
+            x for x in range(0, len(self.multi_period_timeindex),
+                             self.period)]
         return _total_optimization_period
 
     def _add_parent_block_sets(self):
@@ -560,21 +560,38 @@ class MultiPeriodModel(BaseModel):
                                 self.flows[o, i].variable_costs[t_first_next+t]
                         except IndexError:
                             pass
-                    if (self.flows[o, i].actual_value[t] is not None):
-                        self.flow[o, i, t].value = (
-                            self.flows[o, i].actual_value[
-                                    t_first_next+t] *
+                    if self.flows[o, i].nominal_value is not None:
+                        self.flow[o, i, t].setub(
+                            self.flows[o, i].max[t_first_next+t] *
                             self.flows[o, i].nominal_value)
+                        if (self.flows[o, i].actual_value[t] is not None):
+                            self.flow[o, i, t].value = (
+                                self.flows[o, i].actual_value[
+                                        t_first_next+t] *
+                                self.flows[o, i].nominal_value)
+                            if self.flows[o, i].fixed:
+                                self.flow[o, i, t].fix()
+                        if not (self.flows[o, i].nonconvex or
+                                self.flows[o, i].rollinghorizon):
+                            # lower bound of flow variable
+                            self.flow[o, i, t].setlb(
+                                self.flows[o, i].min[t+t_first_next] *
+                                self.flows[o, i].nominal_value)
                     if self.flows[o, i].rollinghorizon:
-                        self.flows[o, i].rollinghorizon.cold_start_costs[t] =\
-                            self.flows[o, i].rollinghorizon.cold_start_costs[
-                                t_first_next+t]
-                        self.flows[o, i].rollinghorizon.warm_start_costs =\
-                            self.flows[o, i].rollinghorizon.warm_start_costs[
-                                t_first_next+t]
-                        self.flows[o, i].rollinghorizon.hot_start_costs =\
-                            self.flows[o, i].rollinghorizon.hot_start_costs[
-                                t_first_next+t]
+                        try:
+                            self.flows[o, i].rollinghorizon.cold_start_costs[t] =\
+                                self.flows[o, i].rollinghorizon.cold_start_costs[
+                                    t_first_next+t]
+                            self.flows[o, i].rollinghorizon.warm_start_costs =\
+                                self.flows[o, i].rollinghorizon.warm_start_costs[
+                                    t_first_next+t]
+                            self.flows[o, i].rollinghorizon.hot_start_costs =\
+                                self.flows[o, i].rollinghorizon.hot_start_costs[
+                                    t_first_next+t]
+                        except IndexError:
+                            pass
+                        except TypeError:
+                            pass
                     # Set values for new loop based on old timestep
                     if self.flows[o, i].rollinghorizon and\
                             self.flows[o, i].nominal_value is not None:
