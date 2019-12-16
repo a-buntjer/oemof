@@ -383,9 +383,9 @@ class MultiPeriodModel(BaseModel):
 
     @property
     def total_optimization_period(self):
-        _total_optimization_period = [
-            x for x in range(0, len(self.multi_period_timeindex),
-                             self.period)]
+        _total_optimization_period = [x for x in range(0,
+                                      len(self.multi_period_timeindex),
+                                      self.period)]
         return _total_optimization_period
 
     def _add_parent_block_sets(self):
@@ -516,9 +516,6 @@ class MultiPeriodModel(BaseModel):
         for t_first in self.total_optimization_period:
             self.es.timeindex = self.multi_period_timeindex[
                     t_first:t_first+self.interval_length]
-            if t_first + self.interval_length >\
-                    len(self.multi_period_timeindex):
-                break
 
             solver_results = opt.solve(self, **solve_kwargs)
 
@@ -548,11 +545,13 @@ class MultiPeriodModel(BaseModel):
                                 self.multiperiod_results[key][key2])
             # Set result values for next loop
             t_first_next = t_first + self.period
+            if t_first_next + self.TIMESTEPS[-1] >\
+                    self.total_optimization_period[-1]:
+                break
             for (o, i) in self.FLOWS:
                 # Set values for new loop
                 if self.flows[o, i].rollinghorizon:
                     self.flows[o, i].rollinghorizon.t_first = t_first_next
-
                 for t in self.TIMESTEPS:
                     if (self.flows[o, i].variable_costs[t] is not None):
                         try:
