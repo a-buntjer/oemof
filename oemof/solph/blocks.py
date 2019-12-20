@@ -1386,5 +1386,5 @@ class RollingHorizonFlow(SimpleBlock):
                                          self.costs_hs[i, o, t] for t in
                                          m.TIMESTEPS)
 
-            self.startup_costs = Expression(expr=startup_costs)
+            # self.startup_costs = Expression(expr=startup_costs)
         return startup_costs + shutdown_costs + activity_costs

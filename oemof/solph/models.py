@@ -516,7 +516,6 @@ class MultiPeriodModel(BaseModel):
         for t_first in self.total_optimization_period:
             self.es.timeindex = self.multi_period_timeindex[
                     t_first:t_first+self.interval_length]
-
             solver_results = opt.solve(self, **solve_kwargs)
 
             status = solver_results["Solver"][0]["Status"].key
