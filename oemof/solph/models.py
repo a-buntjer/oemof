@@ -525,6 +525,10 @@ class MultiPeriodModel(BaseModel):
             if status == "ok" and termination_condition == "optimal":
                 logging.info(
                         f"Optimization of time interval: {t_first} successful...")
+            elif status == "ok" and termination_condition == "maxTimeLimit":
+                logging.info(
+                        f"Optimization of time interval: {t_first} not optimal\
+                            --> reached timelimit!")
             else:
                 msg = (f"Optimization ended in time interval: {t_first}"
                        "with status {0} and termination condition {1}")
