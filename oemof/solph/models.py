@@ -8,14 +8,17 @@ available from its original location oemof/oemof/solph/models.py
 SPDX-License-Identifier: GPL-3.0-or-later
 """
 
+import logging
+import warnings
+from time import time
+
 import pyomo.environ as po
-from pyomo.opt import SolverFactory
 from pyomo.core.plugins.transform.relax_integrality import RelaxIntegrality
+from pyomo.opt import SolverFactory
+
+from oemof.outputlib import processing
 from oemof.solph import blocks
 from oemof.solph.plumbing import sequence
-from oemof.outputlib import processing
-import warnings
-import logging
 
 
 class BaseModel(po.ConcreteModel):
@@ -287,8 +290,8 @@ class Model(BaseModel):
 
         self.BIDIRECTIONAL_FLOWS = po.Set(initialize=[
             k for (k, v) in self.flows.items() if hasattr(v, 'bidirectional')],
-                                          ordered=True, dimen=2,
-                                          within=self.FLOWS)
+            ordered=True, dimen=2,
+            within=self.FLOWS)
 
         self.UNIDIRECTIONAL_FLOWS = po.Set(
             initialize=[k for (k, v) in self.flows.items() if not
@@ -379,13 +382,13 @@ class MultiPeriodModel(BaseModel):
     def last_t_in_interval(self, interval_length):
         if self.interval_length < self.period:
             raise ValueError(
-                    "interval_length must be greater or equal to period")
+                "interval_length must be greater or equal to period")
 
     @property
     def total_optimization_period(self):
         _total_optimization_period = [x for x in range(0,
-                                      len(self.multi_period_timeindex),
-                                      self.period)]
+                                                       len(self.multi_period_timeindex),
+                                                       self.period)]
         return _total_optimization_period
 
     def _add_parent_block_sets(self):
@@ -410,8 +413,8 @@ class MultiPeriodModel(BaseModel):
 
         self.BIDIRECTIONAL_FLOWS = po.Set(initialize=[
             k for (k, v) in self.flows.items() if hasattr(v, 'bidirectional')],
-                                          ordered=True, dimen=2,
-                                          within=self.FLOWS)
+            ordered=True, dimen=2,
+            within=self.FLOWS)
 
         self.UNIDIRECTIONAL_FLOWS = po.Set(
             initialize=[k for (k, v) in self.flows.items() if not
@@ -451,7 +454,7 @@ class MultiPeriodModel(BaseModel):
                 self.flows[o, i].rollinghorizon.t_last =\
                     self.last_t_in_interval
                 self.flows[o, i].rollinghorizon.setup_multi_period_containers(
-                        len(self.multi_period_timeindex))
+                    len(self.multi_period_timeindex))
                 if self.flows[o, i].nominal_value is not None:
                     if self.flows[o, i].rollinghorizon.ramp_limit_down\
                             is not None:
@@ -514,8 +517,9 @@ class MultiPeriodModel(BaseModel):
         self.es.results = {}
         self.solver_results = {}
         for t_first in self.total_optimization_period:
+            start_period = time()
             self.es.timeindex = self.multi_period_timeindex[
-                    t_first:t_first+self.interval_length]
+                t_first:t_first + self.interval_length]
             solver_results = opt.solve(self, **solve_kwargs)
 
             status = solver_results["Solver"][0]["Status"].key
@@ -524,10 +528,10 @@ class MultiPeriodModel(BaseModel):
 
             if status == "ok" and termination_condition == "optimal":
                 logging.info(
-                        f"Optimization of time interval: {t_first} successful...")
+                    f"Optimization of time interval: {t_first} successful...")
             elif status == "ok" and termination_condition == "maxTimeLimit":
                 logging.info(
-                        f"Optimization of time interval: {t_first} not optimal\
+                    f"Optimization of time interval: {t_first} not optimal\
                             --> reached timelimit!")
             else:
                 msg = (f"Optimization ended in time interval: {t_first}"
@@ -535,6 +539,7 @@ class MultiPeriodModel(BaseModel):
                 warnings.warn(msg.format(status, termination_condition),
                               UserWarning)
                 raise SystemExit('Found no solution program ended!')
+            start = time()
             self.es.results[t_first] = solver_results
             self.solver_results[t_first] = solver_results
             actual_loop_results = self.results()
@@ -546,12 +551,16 @@ class MultiPeriodModel(BaseModel):
                         self.multiperiod_results[key][key2] =\
                             value2.combine_first(
                                 self.multiperiod_results[key][key2])
+            print(f"Saving results took: {time()-start:.2f} seconds.")
+            start_flows = time()
             # Set result values for next loop
             t_first_next = t_first + self.period
             if t_first_next + self.TIMESTEPS[-1] >\
                     (len(self.multi_period_timeindex)):
                 break
+            print(f'Length of FLOWS: {len(self.FLOWS)}')
             for (o, i) in self.FLOWS:
+                start_flow = time()
                 # Set values for new loop
                 if self.flows[o, i].rollinghorizon:
                     self.flows[o, i].rollinghorizon.t_first = t_first_next
@@ -559,17 +568,18 @@ class MultiPeriodModel(BaseModel):
                     if (self.flows[o, i].variable_costs[t] is not None):
                         try:
                             self.flows[o, i].variable_costs[t] =\
-                                self.flows[o, i].variable_costs[t_first_next+t]
+                                self.flows[o,
+                                           i].variable_costs[t_first_next + t]
                         except IndexError:
                             pass
                     if self.flows[o, i].nominal_value is not None:
                         self.flow[o, i, t].setub(
-                            self.flows[o, i].max[t_first_next+t] *
+                            self.flows[o, i].max[t_first_next + t] *
                             self.flows[o, i].nominal_value)
                         if (self.flows[o, i].actual_value[t] is not None):
                             self.flow[o, i, t].value = (
                                 self.flows[o, i].actual_value[
-                                        t_first_next+t] *
+                                    t_first_next + t] *
                                 self.flows[o, i].nominal_value)
                             if self.flows[o, i].fixed:
                                 self.flow[o, i, t].fix()
@@ -577,40 +587,49 @@ class MultiPeriodModel(BaseModel):
                                 self.flows[o, i].rollinghorizon):
                             # lower bound of flow variable
                             self.flow[o, i, t].setlb(
-                                self.flows[o, i].min[t+t_first_next] *
+                                self.flows[o, i].min[t + t_first_next] *
                                 self.flows[o, i].nominal_value)
                     if self.flows[o, i].rollinghorizon:
                         try:
                             self.flows[o, i].rollinghorizon.cold_start_costs[t] =\
                                 self.flows[o, i].rollinghorizon.cold_start_costs[
-                                    t_first_next+t]
+                                    t_first_next + t]
                             self.flows[o, i].rollinghorizon.warm_start_costs =\
                                 self.flows[o, i].rollinghorizon.warm_start_costs[
-                                    t_first_next+t]
+                                    t_first_next + t]
                             self.flows[o, i].rollinghorizon.hot_start_costs =\
                                 self.flows[o, i].rollinghorizon.hot_start_costs[
-                                    t_first_next+t]
+                                    t_first_next + t]
                         except IndexError:
                             pass
                         except TypeError:
                             pass
-                    # Set values for new loop based on old timestep
-                    if self.flows[o, i].rollinghorizon and\
-                            self.flows[o, i].nominal_value is not None:
-                        self.flows[o, i].rollinghorizon.initial_min_flow =\
-                            self.flows[o, i].min[t_first+self.period-1] *\
-                            self.flows[o, i].nominal_value
-                    if self.flows[o, i].rollinghorizon:
-                        self.flows[o, i].rollinghorizon.optimized_status[
-                                t_first:t_first+self.interval_length] =\
-                            list(self.RollingHorizonFlow.status[o, i, :]())
-                        self.flows[o, i].rollinghorizon.optimized_flow[
-                                t_first:t_first+self.interval_length] =\
-                            list(self.flow[o, i, :]())
+                # Set values for new loop based on old timestep
+                if self.flows[o, i].rollinghorizon and\
+                        self.flows[o, i].nominal_value is not None:
+                    self.flows[o, i].rollinghorizon.initial_min_flow =\
+                        self.flows[o, i].min[t_first + self.period - 1] *\
+                        self.flows[o, i].nominal_value
+                if self.flows[o, i].rollinghorizon:
+                    self.flows[o, i].rollinghorizon.optimized_status[
+                        t_first:t_first + self.interval_length] =\
+                        list(self.RollingHorizonFlow.status[o, i, :]())
+                    self.flows[o, i].rollinghorizon.optimized_flow[
+                        t_first:t_first + self.interval_length] =\
+                        list(self.flow[o, i, :]())
+                print(
+                    f"Setting one flow took: {time()-start_flow:.2f} seconds.")
+            print(f"Setting flows took: {time()-start_flows:.2f} seconds.")
+            start = time()
             self._add_objective(update=True)
             if hasattr(self, 'GenericStorageBlock'):
                 for n in self.GenericStorageBlock.STORAGES:
                     self.GenericStorageBlock.init_cap[n].fix(
                         self.GenericStorageBlock.capacity[
-                                n, self.period-1].value)
+                            n, self.period - 1].value)
+            print(
+                f"Setting storage objective took: {time()-start:.2f} seconds.")
+            print(
+                f"Optimization period took: {time()-start_period:.2f} seconds.")
+
         return solver_results
