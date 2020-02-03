@@ -517,6 +517,7 @@ class MultiPeriodModel(BaseModel):
         self.es.results = {}
         self.solver_results = {}
         for t_first in self.total_optimization_period:
+            print(f'Start period: {t_first}')
             start_period = time()
             self.es.timeindex = self.multi_period_timeindex[
                 t_first:t_first + self.interval_length]
@@ -539,6 +540,7 @@ class MultiPeriodModel(BaseModel):
                 warnings.warn(msg.format(status, termination_condition),
                               UserWarning)
                 raise SystemExit('Found no solution program ended!')
+            print(f"Solving took: {time()-start_period:.2f} seconds.")
             start = time()
             self.es.results[t_first] = solver_results
             self.solver_results[t_first] = solver_results
@@ -560,7 +562,6 @@ class MultiPeriodModel(BaseModel):
                 break
             print(f'Length of FLOWS: {len(self.FLOWS)}')
             for (o, i) in self.FLOWS:
-                start_flow = time()
                 # Set values for new loop
                 if self.flows[o, i].rollinghorizon:
                     self.flows[o, i].rollinghorizon.t_first = t_first_next
@@ -617,8 +618,6 @@ class MultiPeriodModel(BaseModel):
                     self.flows[o, i].rollinghorizon.optimized_flow[
                         t_first:t_first + self.interval_length] =\
                         list(self.flow[o, i, :]())
-                print(
-                    f"Setting one flow took: {time()-start_flow:.2f} seconds.")
             print(f"Setting flows took: {time()-start_flows:.2f} seconds.")
             start = time()
             self._add_objective(update=True)
